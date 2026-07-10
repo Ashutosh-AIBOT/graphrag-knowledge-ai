@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy backend codebase
 COPY . /app/
 
+# Create volume directories so they exist with the correct permissions in the image
+RUN mkdir -p /app/chroma_db /app/uploaded_documents /app/logs /app/db
+
 # Collect static files (no-op if no static files, but ready for future)
 RUN python manage.py collectstatic --noinput 2>/dev/null || true
 

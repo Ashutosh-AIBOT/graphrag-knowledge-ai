@@ -37,7 +37,28 @@ _ingestion_semaphore = threading.Semaphore(settings.MAX_INGESTION_WORKERS)
 
 logger = logging.getLogger(__name__)
 
+from django.contrib.auth.backends import ModelBackend
+from django.db.models import Q
+
 User = get_user_model()
+
+class EmailOrUsernameModelBackend(ModelBackend):
+    """
+    Custom authentication backend that allows authenticating with either
+    a username or an email address.
+    """
+    def authenticate(self, request, username=None, password=None, **kwargs):
+        if username is None:
+            username = kwargs.get('username')
+        
+        # Check if input matches username OR email (case-insensitive)
+        user = User.objects.filter(
+            Q(username__iexact=username) | Q(email__iexact=username)
+        ).first()
+
+        if user and user.check_password(password):
+            return user
+        return None
 
 
 # ============================================================
@@ -229,6 +250,14 @@ class DocumentUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # --- Duplicate Check ---
+        if Document.objects.filter(user=request.user, name=file_obj.name).exists():
+            logger.warning("Document upload request rejected: Duplicate filename '%s' found for user: %s", file_obj.name, request.user.username)
+            return Response(
+                {"error": "A document with this name has already been uploaded."},
+                status=status.HTTP_409_CONFLICT
+            )
+
         # Save document record with initial PENDING status
         doc = Document.objects.create(
             user=request.user,
@@ -317,6 +346,7 @@ class QueryView(APIView):
     def post(self, request):
         query = request.data.get("query")
         mode = request.data.get("mode", "hybrid")
+        document_ids = request.data.get("document_ids", None)
 
         if not query or not query.strip():
             return Response(
@@ -324,11 +354,11 @@ class QueryView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        logger.info("Executing RAG Query for user: %s | Mode: %s", request.user.username, mode)
+        logger.info("Executing RAG Query for user: %s | Mode: %s | Docs: %s", request.user.username, mode, document_ids)
         start_time = time.time()
         try:
             rag_chain = RAGChain()
-            result = rag_chain.generate_answer(query, request.user.id, mode)
+            result = rag_chain.generate_answer(query, request.user.id, mode, doc_ids=document_ids)
             elapsed = time.time() - start_time
 
             # Log query
@@ -518,8 +548,13 @@ class GraphDataView(APIView):
 
     def get(self, request):
         try:
+            document_ids_str = request.GET.get("document_ids", None)
+            doc_ids = None
+            if document_ids_str:
+                doc_ids = [d.strip() for d in document_ids_str.split(",") if d.strip()]
+            
             graph_retriever = GraphRetriever()
-            graph_json = graph_retriever.get_graph_as_json(request.user.id)
+            graph_json = graph_retriever.get_graph_as_json(request.user.id, doc_ids=doc_ids)
             return Response(graph_json, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error("Error in GraphDataView: %s", str(e), exc_info=True)

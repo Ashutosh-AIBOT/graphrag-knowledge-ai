@@ -18,9 +18,7 @@ export function DocumentUpload() {
 
   // Track real processing progress from the document store
   const liveDoc = uploadedDocId ? documents.find((d) => d.id === uploadedDocId) : null;
-  const liveProgress = liveDoc?.status === 'COMPLETED' ? 100
-    : liveDoc?.status === 'FAILED' ? 0
-    : 50;
+  const liveProgress = liveDoc?.processingProgress ?? 0;
   const liveStep = liveDoc?.processingStep || null;
 
   // Clear upload state when document completes or fails
@@ -79,6 +77,7 @@ export function DocumentUpload() {
         status: doc.status,
         uploadedAt: doc.uploaded_at ?? new Date().toISOString(),
         processingStep: doc.processing_step ?? null,
+        processingProgress: doc.processing_progress ?? 0,
       });
       setUploadedDocId(doc.id);
     } catch (err: any) {

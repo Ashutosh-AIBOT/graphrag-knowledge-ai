@@ -35,12 +35,12 @@ class GraphRetriever:
 
         self.chain = self.prompt | self.structured_llm
 
-    def retrieve_graph_context(self, query: str, user_id: str, hops: int = 2) -> str:
+    def retrieve_graph_context(self, query: str, user_id: str, hops: int = 2, doc_names: List[str] = None) -> str:
         """
         Extracts entities from the query, traverses their Neo4j subgraphs,
         and returns a serialized text block representing the graph context.
         """
-        logger.info("Retrieving graph context for query: '%s' (User: %s)", query, user_id)
+        logger.info("Retrieving graph context for query: '%s' (User: %s, Docs: %s)", query, user_id, doc_names)
         
         # 1. Extract entities from query using LLM
         query_entities = self._extract_entities_from_query(query)
@@ -56,7 +56,7 @@ class GraphRetriever:
         # 2. Query Neo4j for each entity's neighborhood
         for entity_name in query_entities:
             try:
-                paths = self.neo4j_client.get_entity_subgraph(entity_name, user_id, hops=hops)
+                paths = self.neo4j_client.get_entity_subgraph(entity_name, user_id, hops=hops, doc_names=doc_names)
                 self._parse_subgraph_paths(paths, unique_nodes, unique_rels)
             except Exception as e:
                 logger.error("Failed to query subgraph for entity: %s. Error: %s", entity_name, str(e))
@@ -81,12 +81,12 @@ class GraphRetriever:
         logger.info("Generated graph context (%d characters).", len(serialized_context))
         return serialized_context
 
-    def get_graph_as_json(self, user_id: str) -> Dict[str, Any]:
+    def get_graph_as_json(self, user_id: str, doc_ids: List[str] = None) -> Dict[str, Any]:
         """
         Serializes the full graph as JSON for frontend visualization.
         Endpoint: GET /api/graph/
         """
-        raw_data = self.neo4j_client.get_all_graph_data(user_id)
+        raw_data = self.neo4j_client.get_all_graph_data(user_id, doc_ids=doc_ids)
 
         # Assign numeric IDs for vis.js / react-force-graph
         node_id_map = {}

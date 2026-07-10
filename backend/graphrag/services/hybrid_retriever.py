@@ -11,24 +11,24 @@ class HybridRetriever:
         self.graph_retriever = GraphRetriever()
         self.vector_retriever = VectorRetriever()
 
-    def retrieve_combined_context(self, query: str, user_id: str) -> Dict[str, Any]:
+    def retrieve_combined_context(self, query: str, user_id: str, doc_names: List[str] = None) -> Dict[str, Any]:
         """
         Runs both graph and vector search and returns a combined context dictionary.
         Determines the retrieval strategy route (GRAPH_ONLY, VECTOR_ONLY, or HYBRID).
         """
-        logger.info("Running hybrid retrieval for query: '%s' (User: %s)", query, user_id)
+        logger.info("Running hybrid retrieval for query: '%s' (User: %s, Docs: %s)", query, user_id, doc_names)
 
         # 1. Execute Graph Retrieval
         graph_context = ""
         try:
-            graph_context = self.graph_retriever.retrieve_graph_context(query, user_id, hops=2)
+            graph_context = self.graph_retriever.retrieve_graph_context(query, user_id, hops=2, doc_names=doc_names)
         except Exception as e:
             logger.error("Graph retrieval failed during hybrid step. Error: %s", str(e))
 
         # 2. Execute Vector Retrieval
         vector_chunks = []
         try:
-            vector_chunks = self.vector_retriever.retrieve_relevant_chunks(query, user_id, limit=4)
+            vector_chunks = self.vector_retriever.retrieve_relevant_chunks(query, user_id, limit=4, doc_names=doc_names)
         except Exception as e:
             logger.error("Vector retrieval failed during hybrid step. Error: %s", str(e))
 

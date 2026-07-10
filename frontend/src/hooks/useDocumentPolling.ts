@@ -27,6 +27,7 @@ export function useDocumentPolling(enabled = true) {
           error: d.error_message,
           source: d.source || '',
           processingStep: d.processing_step ?? d.processingStep ?? null,
+          processingProgress: d.processing_progress ?? d.processingProgress ?? 0,
         }));
         if (docs.length > 0) {
           setDocuments(docs);
@@ -57,6 +58,7 @@ export function useDocumentPolling(enabled = true) {
           error: d.error_message,
           source: d.source || '',
           processingStep: d.processing_step ?? d.processingStep ?? null,
+          processingProgress: d.processing_progress ?? d.processingProgress ?? 0,
         }));
         const active = docs.filter(
           (d) => d.status === 'PENDING' || d.status === 'PROCESSING'

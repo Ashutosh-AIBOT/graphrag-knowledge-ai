@@ -101,12 +101,17 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': BASE_DIR / 'db' / 'db.sqlite3',
         }
     }
 
 # Custom User Model
 AUTH_USER_MODEL = 'graphrag.User'
+
+AUTHENTICATION_BACKENDS = [
+    'graphrag.views.EmailOrUsernameModelBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

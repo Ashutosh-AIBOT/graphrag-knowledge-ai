@@ -13,6 +13,7 @@ import { GraphVisualization } from '@/components/graph/GraphVisualization';
 import { Upload, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/axios';
+import { useDocumentsStore } from '@/store/documents';
 
 interface QueryResult {
   answer: string;
@@ -29,6 +30,8 @@ export function MainQueryView() {
   const setHighlighted = useGraphStore((s) => s.setHighlighted);
   const selectEntity = useGraphStore((s) => s.selectEntity);
   const data = useGraphStore((s) => s.data);
+
+  const selectedIds = useDocumentsStore((s) => s.selectedDocumentIds);
 
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<QueryMode>('hybrid');
@@ -52,7 +55,11 @@ export function MainQueryView() {
     setLoading(true);
     setResult(null);
     try {
-      const { data: res } = await api.post('/query/', { query, mode });
+      const { data: res } = await api.post('/query/', {
+        query,
+        mode,
+        document_ids: selectedIds.length > 0 ? selectedIds : undefined
+      });
       const mapped: QueryResult = {
         answer: res.answer,
         confidence: res.confidence,

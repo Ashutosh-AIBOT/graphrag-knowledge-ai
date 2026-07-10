@@ -19,7 +19,7 @@ class VectorRetriever:
 
         # 2. Load the Embedding Model via ChromaDB's built-in ONNX path
         # Uses ONNX runtime only — no torch/CUDA needed, no sentence-transformers package
-        self.embedding_fn = ONNXMiniLM_L6_V2(preferred_provider="CPUExecutionProvider")
+        self.embedding_fn = ONNXMiniLM_L6_V2(preferred_providers=["CPUExecutionProvider"])
 
         # 3. Setup text splitter for document chunking
         def chunk_text(text: str, chunk_size: int = 800, chunk_overlap: int = 100) -> List[str]:
@@ -81,19 +81,23 @@ class VectorRetriever:
             logger.error("Failed to index document in ChromaDB. Error: %s", str(e), exc_info=True)
             raise e
 
-    def retrieve_relevant_chunks(self, query: str, user_id: str, limit: int = 5) -> List[dict]:
+    def retrieve_relevant_chunks(self, query: str, user_id: str, limit: int = 5, doc_names: List[str] = None) -> List[dict]:
         """
         Queries ChromaDB to retrieve the most semantically relevant text passages.
         """
-        logger.info("Searching ChromaDB for query: '%s' (Limit: %d, User: %s)", query, limit, user_id)
+        logger.info("Searching ChromaDB for query: '%s' (Limit: %d, User: %s, Docs: %s)", query, limit, user_id, doc_names)
         try:
             collection = self._get_user_collection(user_id)
             query_vector = self.embedding_fn([query])[0]
 
-            results = collection.query(
-                query_embeddings=[query_vector],
-                n_results=limit
-            )
+            query_params = {
+                "query_embeddings": [query_vector],
+                "n_results": limit
+            }
+            if doc_names:
+                query_params["where"] = {"source_doc": {"$in": [str(d) for d in doc_names]}}
+
+            results = collection.query(**query_params)
 
             retrieved = []
             if results and results["documents"]:

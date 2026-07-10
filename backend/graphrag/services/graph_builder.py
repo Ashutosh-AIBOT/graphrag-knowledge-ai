@@ -27,9 +27,9 @@ class GraphBuilder:
         """Update document processing progress for frontend polling."""
         doc.processing_step = step
         doc.processing_progress = progress
-        doc.save(update_fields=['processing_step', 'processing_progress', 'updated_at'])
+        doc.save(update_fields=['processing_step', 'processing_progress'])
 
-    def _batch_create_entities(self, entities: List[dict], user_id: str):
+    def _batch_create_entities(self, entities: List[dict], user_id: str, document_id: str):
         """Batch create entities using UNWIND to reduce N+1 queries."""
         if not entities:
             return
@@ -40,8 +40,8 @@ class GraphBuilder:
                 "UNWIND $entities AS ent "
                 "MERGE (e:Entity {name: ent.name, user_id: $user_id}) "
                 "ON CREATE SET e.type = ent.type, e.description = ent.description, "
-                "              e.source_doc = ent.source_doc, e.page = ent.page, e.created_at = timestamp() "
-                "ON MATCH SET e.description = coalesce(e.description, ent.description)"
+                "              e.source_doc = ent.source_doc, e.source_doc_id = $document_id, e.page = ent.page, e.created_at = timestamp() "
+                "ON MATCH SET e.description = coalesce(e.description, ent.description), e.source_doc_id = $document_id, e.source_doc = ent.source_doc"
             )
             params = {
                 "entities": [
@@ -54,11 +54,12 @@ class GraphBuilder:
                     }
                     for e in batch
                 ],
-                "user_id": str(user_id)
+                "user_id": str(user_id),
+                "document_id": str(document_id)
             }
             self.neo4j_client.execute_query(query, params)
 
-    def _batch_create_relationships(self, relationships: List[dict], user_id: str):
+    def _batch_create_relationships(self, relationships: List[dict], user_id: str, document_id: str):
         """Batch create relationships grouped by type using UNWIND."""
         if not relationships:
             return
@@ -82,7 +83,8 @@ class GraphBuilder:
                     "MATCH (target:Entity {name: rel.target, user_id: $user_id}) "
                     f"MERGE (source)-[r:{rel_type}]->(target) "
                     "ON CREATE SET r.description = rel.description, r.confidence = rel.confidence, "
-                    "              r.source_doc = rel.source_doc, r.page = rel.page, r.created_at = timestamp() "
+                    "              r.source_doc = rel.source_doc, r.source_doc_id = $document_id, r.page = rel.page, r.created_at = timestamp() "
+                    "ON MATCH SET r.source_doc_id = $document_id, r.source_doc = rel.source_doc "
                     "RETURN r LIMIT 1"
                 )
                 params = {
@@ -97,7 +99,8 @@ class GraphBuilder:
                         }
                         for rel in batch
                     ],
-                    "user_id": str(user_id)
+                    "user_id": str(user_id),
+                    "document_id": str(document_id)
                 }
                 self.neo4j_client.execute_query(query, params)
 
@@ -161,6 +164,8 @@ class GraphBuilder:
 
             # 3. Perform Entity and Relationship Extraction per section (parallel)
             completed = 0
+            failed_count = 0
+            last_error = None
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {executor.submit(process_section, sec): sec for sec in sections}
                 for future in as_completed(futures):
@@ -172,9 +177,14 @@ class GraphBuilder:
                             all_relationships.extend(rels)
                     except Exception as e:
                         logger.error("Section processing failed: %s", str(e))
+                        failed_count += 1
+                        last_error = e
                     completed += 1
                     extraction_progress = 20 + int(55 * (completed / total_sections)) if total_sections > 0 else 20
                     self._update_progress(doc, f"Extracting entities... ({completed}/{total_sections})", extraction_progress)
+
+            if failed_count == total_sections and total_sections > 0:
+                raise RuntimeError(f"All sections failed to process. Last error: {last_error}")
 
             # 4. Run entity resolution (deduplicate entities and rewrite relationships)
             self._update_progress(doc, "Resolving duplicates...", 80)
@@ -185,12 +195,12 @@ class GraphBuilder:
             # 5. Batch store resolved nodes inside Neo4j
             self._update_progress(doc, "Building knowledge graph...", 85)
             logger.info("Writing %d resolved entities to Neo4j...", len(resolved_ents))
-            self._batch_create_entities(resolved_ents, user_id)
+            self._batch_create_entities(resolved_ents, user_id, document_id)
 
             # 6. Batch store rewritten edges inside Neo4j
             self._update_progress(doc, "Writing relationships...", 92)
             logger.info("Writing %d rewritten relationships to Neo4j...", len(rewritten_rels))
-            self._batch_create_relationships(rewritten_rels, user_id)
+            self._batch_create_relationships(rewritten_rels, user_id, document_id)
 
             # 7. Update status to COMPLETED and record counts
             doc.entity_count = len(resolved_ents)
@@ -223,7 +233,7 @@ class GraphBuilder:
             vector_ok = True
 
             try:
-                self.neo4j_client.delete_document_nodes(doc.name, user_id)
+                self.neo4j_client.delete_document_nodes(doc.id, user_id)
             except Exception as e:
                 logger.error("Neo4j cleanup failed for Document: %s. Error: %s", doc.name, str(e))
                 neo4j_ok = False

@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+import { DocumentFilterDropdown } from './DocumentFilterDropdown';
+
 export type QueryMode = 'graph' | 'vector' | 'hybrid';
 
 const MODES: { value: QueryMode; label: string }[] = [
@@ -32,26 +34,30 @@ export function QueryPanel({
 }: QueryPanelProps) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-          Mode
-        </span>
-        <div className="inline-flex rounded-md border border-border p-0.5">
-          {MODES.map((m) => (
-            <button
-              key={m.value}
-              onClick={() => onModeChange(m.value)}
-              className={cn(
-                'rounded px-2.5 py-1 text-xs font-medium transition-colors',
-                mode === m.value
-                  ? 'bg-accent-violet text-white'
-                  : 'text-text-secondary hover:text-text-primary'
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+            Mode
+          </span>
+          <div className="inline-flex rounded-md border border-border p-0.5">
+            {MODES.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => onModeChange(m.value)}
+                className={cn(
+                  'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                  mode === m.value
+                    ? 'bg-accent-violet text-white'
+                    : 'text-text-secondary hover:text-text-primary'
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
         </div>
+
+        <DocumentFilterDropdown />
       </div>
 
       <div className="flex gap-2">

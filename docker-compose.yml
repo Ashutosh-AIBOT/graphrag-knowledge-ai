@@ -39,6 +39,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: graphrag_backend
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2 --timeout 300 --access-logfile - --error-logfile -"
     restart: unless-stopped
     ports:
       # Only expose to localhost — not 0.0.0.0
@@ -52,7 +55,7 @@ services:
       - ALLOWED_HOSTS=localhost,127.0.0.1,backend
     volumes:
       # Persist SQLite database (user accounts, document metadata)
-      - sqlite_data:/app
+      - sqlite_data:/app/db
       # Persist ChromaDB vector store
       - chroma_data:/app/chroma_db
       # Persist uploaded documents

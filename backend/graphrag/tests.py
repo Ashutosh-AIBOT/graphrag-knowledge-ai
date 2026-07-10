@@ -76,6 +76,17 @@ class GraphRAGTests(APITestCase):
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
 
+    def test_login_with_email_and_jwt_issuance(self):
+        url = reverse('auth_login')
+        data = {
+            "username": self.email,
+            "password": self.password
+        }
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+
     # ================= DOCUMENT & INGESTION TESTS =================
 
     @patch('graphrag.views.trigger_ingestion_background')

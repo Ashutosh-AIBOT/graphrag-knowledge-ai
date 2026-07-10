@@ -10,7 +10,7 @@ import { GraphControls } from './GraphControls';
 import { GraphLegend } from './GraphLegend';
 import { GraphSearch } from './GraphSearch';
 
-const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false }) as any;
+const ForceGraph2D = dynamic(() => import('./ForceGraphWrapper'), { ssr: false }) as any;
 
 interface FGNode extends GraphNode {
   x?: number;

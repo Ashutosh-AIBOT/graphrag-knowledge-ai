@@ -2,13 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '@/lib/axios';
 import { useGraphStore, GraphData } from '@/store/graph';
 import { mockGraph } from '@/lib/mockData';
-
-// Module-level dedupe so multiple components calling useGraphData
-// (HeroSection, MainQueryView, ExplorePage, CommunityView) don't race
-// or fire redundant requests.
-let inFlight: Promise<void> | null = null;
-let lastFetchedAt = 0;
-const CACHE_TTL_MS = 30_000;
+import { useDocumentsStore } from '@/store/documents';
 
 function mapResponse(data: any): GraphData {
   return {
@@ -32,48 +26,40 @@ function mapResponse(data: any): GraphData {
   };
 }
 
-function fetchGraph(setData: (d: GraphData) => void, setError: (e: string | null) => void) {
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
-    try {
-      const { data } = await api.get('/graph/');
-      setData(mapResponse(data));
-      setError(null);
-      lastFetchedAt = Date.now();
-    } catch {
-      setError('Using demo graph data (backend unavailable).');
-      setData(mockGraph);
-      lastFetchedAt = Date.now();
-    } finally {
-      inFlight = null;
-    }
-  })();
-  return inFlight;
-}
-
 export function useGraphData() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const setData = useGraphStore((s) => s.setData);
-  const existing = useGraphStore((s) => s.data);
+  const selectedIds = useDocumentsStore((s) => s.selectedDocumentIds);
+  const selectedIdsStr = selectedIds.join(',');
 
   useEffect(() => {
-    // Skip if we already have fresh data within the TTL.
-    if (existing.nodes.length > 0 && Date.now() - lastFetchedAt < CACHE_TTL_MS) {
-      return;
-    }
     let cancelled = false;
     setLoading(true);
-    fetchGraph(
-      (d) => !cancelled && setData(d),
-      (e) => !cancelled && setError(e)
-    ).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+    
+    const url = selectedIdsStr ? `/graph/?document_ids=${selectedIdsStr}` : '/graph/';
+    
+    api.get(url)
+      .then(({ data }) => {
+        if (!cancelled) {
+          setData(mapResponse(data));
+          setError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Using demo graph data (backend unavailable).');
+          setData(mockGraph);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
     return () => {
       cancelled = true;
     };
-  }, [setData, existing.nodes.length]);
+  }, [setData, selectedIdsStr]);
 
   return { loading, error };
 }

@@ -57,7 +57,7 @@ class RAGChain:
             )
         }
 
-    def generate_answer(self, query: str, user_id: str, mode: str = "hybrid") -> Dict[str, Any]:
+    def generate_answer(self, query: str, user_id: str, mode: str = "hybrid", doc_ids: List[str] = None) -> Dict[str, Any]:
         """
         Retrieves context according to the selected mode, invokes the LLM, and returns the response.
         """
@@ -66,7 +66,17 @@ class RAGChain:
             logger.warning("Invalid retrieval mode '%s' requested. Defaulting to 'hybrid'.", mode)
             mode = "hybrid"
 
-        logger.info("Generating RAG answer in '%s' mode for query: '%s' (User: %s)", mode, query, user_id)
+        logger.info("Generating RAG answer in '%s' mode for query: '%s' (User: %s, Doc IDs: %s)", mode, query, user_id, doc_ids)
+
+        # Resolve doc_ids to names
+        doc_names = None
+        if doc_ids:
+            try:
+                from graphrag.models import Document
+                doc_names = list(Document.objects.filter(id__in=doc_ids).values_list('name', flat=True))
+                logger.info("Resolved filter doc IDs to names: %s", doc_names)
+            except Exception as e:
+                logger.error("Failed to resolve doc_ids to names: %s", str(e))
 
         context = ""
         sources = []
@@ -76,7 +86,7 @@ class RAGChain:
         # 1. Fetch Context depending on the Retrieval Mode
         try:
             if mode == "vector":
-                chunks = self.vector_retriever.retrieve_relevant_chunks(query, user_id, limit=5)
+                chunks = self.vector_retriever.retrieve_relevant_chunks(query, user_id, limit=5, doc_names=doc_names)
                 context_lines = []
                 for c in chunks:
                     context_lines.append(f"Document: {c['source_doc']} (Page: {c['page']}): \"{c['text']}\"")
@@ -84,7 +94,7 @@ class RAGChain:
                 context = "### TEXT PASSAGES:\n" + "\n\n".join(context_lines)
 
             elif mode == "graph":
-                graph_context = self.graph_retriever.retrieve_graph_context(query, user_id, hops=2)
+                graph_context = self.graph_retriever.retrieve_graph_context(query, user_id, hops=2, doc_names=doc_names)
                 context = graph_context
                 # Extract entity names as sources
                 for line in graph_context.split("\n"):
@@ -93,7 +103,7 @@ class RAGChain:
                         sources.append(f"Graph Node: {ent_name}")
 
             else:  # hybrid
-                hybrid_result = self.hybrid_retriever.retrieve_combined_context(query, user_id)
+                hybrid_result = self.hybrid_retriever.retrieve_combined_context(query, user_id, doc_names=doc_names)
                 context = hybrid_result["combined_context"]
                 strategy_used = hybrid_result["strategy"]
                 

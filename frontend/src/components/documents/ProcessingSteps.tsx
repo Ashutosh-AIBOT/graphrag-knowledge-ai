@@ -2,11 +2,11 @@ import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
 
 export const PROCESSING_STEPS = [
   'Loading document',
+  'Indexing vectors',
   'Extracting entities',
-  'Extracting relationships',
   'Resolving duplicates',
   'Building graph',
-  'Indexing vectors',
+  'Extracting relationships',
 ];
 
 interface StepCounts {
@@ -17,12 +17,29 @@ interface StepCounts {
 
 export function ProcessingSteps({
   currentStep,
+  status,
   counts,
 }: {
   currentStep?: string | null;
+  status?: string;
   counts?: StepCounts;
 }) {
-  const active = currentStep ? PROCESSING_STEPS.indexOf(currentStep) : -1;
+  const isCompleted = status === 'COMPLETED' || currentStep === 'Complete';
+  const active = isCompleted
+    ? PROCESSING_STEPS.length
+    : currentStep
+      ? PROCESSING_STEPS.findIndex((s) => {
+          const lowerStep = s.toLowerCase();
+          const lowerCurrent = currentStep.toLowerCase();
+          return (
+            lowerCurrent.includes(lowerStep) ||
+            (lowerStep === 'loading document' && lowerCurrent.includes('parsing')) ||
+            (lowerStep === 'indexing vectors' && lowerCurrent.includes('indexing')) ||
+            (lowerStep === 'building graph' && lowerCurrent.includes('building')) ||
+            (lowerStep === 'extracting relationships' && (lowerCurrent.includes('writing relationships') || lowerCurrent.includes('extracting relationships')))
+          );
+        })
+      : -1;
 
   function getCountLabel(step: string): string | null {
     if (!counts) return null;

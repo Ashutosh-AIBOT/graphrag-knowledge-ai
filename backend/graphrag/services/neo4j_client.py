@@ -119,14 +119,14 @@ class Neo4jClient:
             result = session.run(query, parameters)
             return [record.data() for record in result]
 
-    def create_entity_node(self, name, entity_type, description, user_id, source_doc=None, page=None):
+    def create_entity_node(self, name, entity_type, description, user_id, source_doc=None, source_doc_id=None, page=None):
         """
         Create or update (MERGE) an Entity node, isolating by user_id.
         """
         query = (
             "MERGE (e:Entity {name: $name, user_id: $user_id}) "
             "ON CREATE SET e.type = $type, e.description = $description, "
-            "              e.source_doc = $source_doc, e.page = $page, e.created_at = timestamp() "
+            "              e.source_doc = $source_doc, e.source_doc_id = $source_doc_id, e.page = $page, e.created_at = timestamp() "
             "ON MATCH SET e.description = coalesce(e.description, $description) "
             "RETURN e"
         )
@@ -136,11 +136,12 @@ class Neo4jClient:
             "description": description.strip(),
             "user_id": str(user_id),
             "source_doc": source_doc,
+            "source_doc_id": str(source_doc_id) if source_doc_id else None,
             "page": page
         }
         self.execute_query(query, params)
 
-    def create_relationship_edge(self, source_name, target_name, rel_type, description, confidence, user_id, source_doc=None, page=None):
+    def create_relationship_edge(self, source_name, target_name, rel_type, description, confidence, user_id, source_doc=None, source_doc_id=None, page=None):
         """
         Create a directed relationship edge between two existing Entity nodes.
         Uses strict allowlist to prevent Cypher injection.
@@ -155,7 +156,7 @@ class Neo4jClient:
             f"MATCH (target:Entity {{name: $target_name, user_id: $user_id}}) "
             f"MERGE (source)-[r:{clean_rel_type}]->(target) "
             f"ON CREATE SET r.description = $description, r.confidence = $confidence, "
-            f"              r.source_doc = $source_doc, r.page = $page, r.created_at = timestamp() "
+            f"              r.source_doc = $source_doc, r.source_doc_id = $source_doc_id, r.page = $page, r.created_at = timestamp() "
             f"RETURN r"
         )
         params = {
@@ -165,20 +166,29 @@ class Neo4jClient:
             "confidence": float(confidence),
             "user_id": str(user_id),
             "source_doc": source_doc,
+            "source_doc_id": str(source_doc_id) if source_doc_id else None,
             "page": page
         }
         self.execute_query(query, params)
 
-    def get_entity_subgraph(self, name, user_id, hops=2):
+    def get_entity_subgraph(self, name, user_id, hops=2, doc_names=None):
         """
         Retrieve all connected entities and relationships up to N hops.
         """
         hops = max(1, min(int(hops), 10))
-        query = (
-            f"MATCH path = (e:Entity {{name: $name, user_id: $user_id}})-[*1..{hops}]-(neighbor:Entity {{user_id: $user_id}}) "
-            f"RETURN path LIMIT 50"
-        )
-        params = {"name": name, "user_id": str(user_id)}
+        if doc_names:
+            query = (
+                f"MATCH path = (e:Entity {{name: $name, user_id: $user_id}})-[*1..{hops}]-(neighbor:Entity {{user_id: $user_id}}) "
+                f"WHERE all(r in relationships(path) WHERE r.source_doc IN $doc_names) "
+                f"RETURN path LIMIT 50"
+            )
+            params = {"name": name, "user_id": str(user_id), "doc_names": [str(d) for d in doc_names]}
+        else:
+            query = (
+                f"MATCH path = (e:Entity {{name: $name, user_id: $user_id}})-[*1..{hops}]-(neighbor:Entity {{user_id: $user_id}}) "
+                f"RETURN path LIMIT 50"
+            )
+            params = {"name": name, "user_id": str(user_id)}
         return self.execute_query(query, params)
 
     def find_shortest_path(self, start_name, end_name, user_id, max_hops=5):
@@ -247,27 +257,47 @@ class Neo4jClient:
     # Additional Methods — used by new endpoints (graph, search, etc.)
     # ----------------------------------------------------------------
 
-    def get_all_graph_data(self, user_id):
+    def get_all_graph_data(self, user_id, doc_ids=None):
         """
         Returns all nodes and relationships for frontend visualization.
-        Endpoint: GET /api/graph/
+        Allows filtering by a list of document IDs (doc_ids).
         """
-        nodes_query = (
-            "MATCH (e:Entity {user_id: $user_id}) "
-            "RETURN e.name AS name, e.type AS type, e.description AS description, "
-            "       e.source_doc AS source_doc, e.page AS page "
-            "LIMIT 500"
-        )
-        edges_query = (
-            "MATCH (s:Entity {user_id: $user_id})-[r]->(t:Entity {user_id: $user_id}) "
-            "RETURN s.name AS source, t.name AS target, "
-            "       type(r) AS relationship_type, r.description AS description, "
-            "       r.confidence AS confidence, r.source_doc AS source_doc "
-            "LIMIT 1000"
-        )
+        if doc_ids:
+            nodes_query = (
+                "MATCH (e:Entity {user_id: $user_id}) "
+                "WHERE e.source_doc_id IN $doc_ids "
+                "RETURN e.name AS name, e.type AS type, e.description AS description, "
+                "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page "
+                "LIMIT 500"
+            )
+            edges_query = (
+                "MATCH (s:Entity {user_id: $user_id})-[r]->(t:Entity {user_id: $user_id}) "
+                "WHERE r.source_doc_id IN $doc_ids "
+                "RETURN s.name AS source, t.name AS target, "
+                "       type(r) AS relationship_type, r.description AS description, "
+                "       r.confidence AS confidence, r.source_doc AS source_doc, r.source_doc_id AS source_doc_id "
+                "LIMIT 1000"
+            )
+            params = {"user_id": str(user_id), "doc_ids": [str(d) for d in doc_ids]}
+        else:
+            nodes_query = (
+                "MATCH (e:Entity {user_id: $user_id}) "
+                "RETURN e.name AS name, e.type AS type, e.description AS description, "
+                "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page "
+                "LIMIT 500"
+            )
+            edges_query = (
+                "MATCH (s:Entity {user_id: $user_id})-[r]->(t:Entity {user_id: $user_id}) "
+                "RETURN s.name AS source, t.name AS target, "
+                "       type(r) AS relationship_type, r.description AS description, "
+                "       r.confidence AS confidence, r.source_doc AS source_doc, r.source_doc_id AS source_doc_id "
+                "LIMIT 1000"
+            )
+            params = {"user_id": str(user_id)}
+
         try:
-            nodes = self.execute_query(nodes_query, {"user_id": str(user_id)})
-            edges = self.execute_query(edges_query, {"user_id": str(user_id)})
+            nodes = self.execute_query(nodes_query, params)
+            edges = self.execute_query(edges_query, params)
             return {"nodes": nodes, "edges": edges}
         except Exception as e:
             logger.error("Failed to get all graph data: %s", str(e))
@@ -384,26 +414,25 @@ class Neo4jClient:
 
         return ft_results[:limit]
 
-    def delete_document_nodes(self, document_name, user_id):
+    def delete_document_nodes(self, document_id, user_id):
         """
-        Wipe all nodes and relationships associated with a deleted document.
-        Removes orphan nodes that have no other remaining connections.
+        Wipe all nodes and relationships associated with a deleted document ID.
         """
-        logger.info("Executing Cypher delete query for document: %s, User: %s", document_name, user_id)
+        logger.info("Executing Cypher delete query for document ID: %s, User: %s", document_id, user_id)
         
-        # 1. Delete relationships pointing from or to nodes created by this document
+        # 1. Delete relationships pointing from or to nodes created by this document ID
         delete_rels_query = (
             "MATCH (a:Entity {user_id: $user_id})-[r]->(b:Entity {user_id: $user_id}) "
-            "WHERE r.source_doc = $document_name "
+            "WHERE r.source_doc_id = $document_id "
             "DELETE r"
         )
-        # 2. Delete nodes created solely by this document
+        # 2. Delete nodes created by this document ID that are now orphans
         delete_nodes_query = (
             "MATCH (e:Entity {user_id: $user_id}) "
-            "WHERE e.source_doc = $document_name "
-            "DETACH DELETE e"
+            "WHERE e.source_doc_id = $document_id AND NOT (e)-[]-() "
+            "DELETE e"
         )
         
-        params = {"document_name": document_name, "user_id": str(user_id)}
+        params = {"document_id": str(document_id), "user_id": str(user_id)}
         self.execute_query(delete_rels_query, params)
         self.execute_query(delete_nodes_query, params)
