@@ -1,10 +1,10 @@
 import os
+import uuid
 import logging
 from typing import List
 from django.conf import settings
 import chromadb
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
 logger = logging.getLogger(__name__)
 
@@ -13,23 +13,28 @@ class VectorRetriever:
         logger.info("Initializing VectorRetriever service.")
         
         # 1. Initialize Persistent ChromaDB Client
-        self.persist_directory = os.path.join(settings.BASE_DIR, "db", "chromadb")
+        self.persist_directory = getattr(settings, 'CHROMADB_DIR', os.path.join(settings.BASE_DIR, "chroma_db"))
         os.makedirs(self.persist_directory, exist_ok=True)
         self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
 
-        # 2. Load the Embedding Model (all-MiniLM-L6-v2)
-        # Prioritizes CPU execution but supports CUDA if available
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        # 2. Load the Embedding Model via ChromaDB's built-in ONNX path
+        # Uses ONNX runtime only — no torch/CUDA needed, no sentence-transformers package
+        self.embedding_fn = ONNXMiniLM_L6_V2(preferred_provider="CPUExecutionProvider")
 
         # 3. Setup text splitter for document chunking
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=100,
-            length_function=len
-        )
+        def chunk_text(text: str, chunk_size: int = 800, chunk_overlap: int = 100) -> List[str]:
+            words = text.split()
+            chunks = []
+            start = 0
+            while start < len(words):
+                end = min(start + chunk_size, len(words))
+                chunks.append(' '.join(words[start:end]))
+                if end == len(words):
+                    break
+                start = end - chunk_overlap
+            return chunks
+
+        self.text_splitter = chunk_text
 
     def _get_user_collection(self, user_id):
         """
@@ -52,16 +57,17 @@ class VectorRetriever:
         logger.info("Starting vector indexing for document '%s' (User: %s)", doc_name, user_id)
         try:
             # Split text into chunks
-            chunks = self.text_splitter.split_text(text_content)
+            chunks = self.text_splitter(text_content)
             logger.info("Split document into %d vector chunks.", len(chunks))
 
             collection = self._get_user_collection(user_id)
 
             # Prepare inputs for ChromaDB
-            ids = [f"{doc_name}_chunk_{i}" for i in range(len(chunks))]
-            # Generate vector representations using sentence-transformers
-            embeddings = self.embeddings.embed_documents(chunks)
-            metadatas = [{"source_doc": doc_name, "page": (i // 2) + 1} for i in range(len(chunks))]
+            doc_id = str(uuid.uuid4())[:8]
+            ids = [f"{doc_id}_{doc_name}_chunk_{i}" for i in range(len(chunks))]
+            # Generate vector representations using ONNX-based embedding
+            embeddings = self.embedding_fn(chunks)
+            metadatas = [{"source_doc": doc_name, "page": i + 1, "chunk_index": i} for i in range(len(chunks))]
 
             # Insert or update in ChromaDB
             collection.upsert(
@@ -82,7 +88,7 @@ class VectorRetriever:
         logger.info("Searching ChromaDB for query: '%s' (Limit: %d, User: %s)", query, limit, user_id)
         try:
             collection = self._get_user_collection(user_id)
-            query_vector = self.embeddings.embed_query(query)
+            query_vector = self.embedding_fn([query])[0]
 
             results = collection.query(
                 query_embeddings=[query_vector],

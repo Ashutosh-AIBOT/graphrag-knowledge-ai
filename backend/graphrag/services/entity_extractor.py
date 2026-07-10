@@ -2,6 +2,7 @@ import logging
 from typing import List
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from .llm_client import get_llm
 
 logger = logging.getLogger(__name__)
@@ -51,9 +52,17 @@ class EntityExtractor:
         # Chain prompt with structured model execution
         self.chain = self.prompt | self.structured_llm
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+        reraise=True
+    )
     def extract_entities(self, text_content: str) -> List[dict]:
         """
         Processes a string chunk of text and returns a list of serialized entity dicts.
+        Retries on transient connection errors with exponential backoff.
+        Raises on LLM failures to let graph_builder.py mark document as FAILED.
         """
         if not text_content or not text_content.strip():
             logger.warning("Empty text chunk provided to extract_entities.")
@@ -62,12 +71,7 @@ class EntityExtractor:
         word_count = len(text_content.split())
         logger.info("Running entity extraction on text chunk (Words: %d).", word_count)
 
-        try:
-            result: ExtractedEntities = self.chain.invoke({"text_content": text_content})
-            extracted = [entity.model_dump() for entity in result.entities]
-            logger.info("Successfully extracted %d entities from text chunk.", len(extracted))
-            return extracted
-        except Exception as e:
-            logger.error("Failed during entity extraction processing. Error: %s", str(e), exc_info=True)
-            # Return empty list on failure to let the rest of ingestion pipeline survive
-            return []
+        result: ExtractedEntities = self.chain.invoke({"text_content": text_content})
+        extracted = [entity.model_dump() for entity in result.entities]
+        logger.info("Successfully extracted %d entities from text chunk.", len(extracted))
+        return extracted

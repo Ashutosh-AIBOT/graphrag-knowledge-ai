@@ -40,6 +40,9 @@ class Document(models.Model):
     entity_count = models.IntegerField(default=0)
     relationship_count = models.IntegerField(default=0)
     error_message = models.TextField(blank=True, null=True)
+    source = models.CharField(max_length=255, blank=True, default='', help_text="Optional source label (e.g. research-paper, internal-wiki)")
+    processing_progress = models.IntegerField(default=0, help_text="Progress percentage (0-100)")
+    processing_step = models.CharField(max_length=200, blank=True, default='', help_text="Current processing step description")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

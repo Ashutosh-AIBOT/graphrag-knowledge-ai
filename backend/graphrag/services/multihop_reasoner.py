@@ -1,16 +1,51 @@
 import logging
-from typing import List, Dict, Any
+import re
+from typing import List, Dict, Any, Optional
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 from .llm_client import get_llm
 from .neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
+
+# Patterns that indicate multi-hop queries
+MULTIHOP_PATTERNS = [
+    r"who manages.*who",
+    r"who leads.*that",
+    r"what depends on.*that",
+    r"what.*connected to.*through",
+    r"who reports to.*who",
+    r"which.*works at.*that",
+    r"what.*built by.*that",
+    r"find.*path between",
+    r"how.*related to",
+    r"who.*manages the team",
+    r"what.*the manager of",
+    r"list all.*connected",
+]
+
+
+class EntityPair(BaseModel):
+    """Two entities to find a path between."""
+    entity_a: str = Field(description="The first entity name")
+    entity_b: str = Field(description="The second entity name")
+
 
 class MultiHopReasoner:
     def __init__(self):
         logger.info("Initializing MultiHopReasoner service.")
         self.neo4j_client = Neo4jClient()
         self.llm = get_llm(temperature=0.0)
+
+        # Entity extraction prompt for multi-hop queries
+        self.entity_extract_prompt = ChatPromptTemplate.from_messages([
+            ("system", (
+                "Extract the two main entities from this multi-hop question. "
+                "Return them as entity_a and entity_b."
+            )),
+            ("human", "{question}")
+        ])
+        self.entity_extract_chain = self.entity_extract_prompt | self.llm.with_structured_output(EntityPair)
 
         # Prompt instruction to summarize path connections
         self.prompt = ChatPromptTemplate.from_messages([
@@ -30,6 +65,62 @@ class MultiHopReasoner:
 
         self.chain = self.prompt | self.llm
 
+    @staticmethod
+    def is_multihop_query(question: str) -> bool:
+        """Detect if a question requires multi-hop reasoning based on pattern matching."""
+        q = question.lower()
+        return any(re.search(pat, q) for pat in MULTIHOP_PATTERNS)
+
+    def extract_entities_from_query(self, question: str) -> Optional[Dict[str, str]]:
+        """Use LLM to extract entity pair from a multi-hop question."""
+        try:
+            result: EntityPair = self.entity_extract_chain.invoke({"question": question})
+            return {"entity_a": result.entity_a.strip(), "entity_b": result.entity_b.strip()}
+        except Exception as e:
+            logger.error("Failed to extract entities from multi-hop query: %s", str(e))
+            return None
+
+    def find_alternative_paths(self, entity_a: str, entity_b: str, user_id: str, max_paths: int = 3) -> List[List[Dict]]:
+        """Find multiple alternative paths between two entities."""
+        cypher = (
+            "MATCH p = allShortestPaths("
+            "  (a:Entity {name: $entity_a, user_id: $user_id})-[*..5]-(b:Entity {name: $entity_b, user_id: $user_id})"
+            ") "
+            "RETURN p LIMIT $limit"
+        )
+        params = {
+            "entity_a": entity_a,
+            "entity_b": entity_b,
+            "user_id": str(user_id),
+            "limit": max_paths
+        }
+
+        try:
+            records = self.neo4j_client.execute_query(cypher, params)
+            all_paths = []
+            for record in records:
+                path_obj = record.get("p")
+                if not path_obj:
+                    continue
+                nodes = path_obj.nodes
+                relationships = path_obj.relationships
+                path_steps = []
+                for i in range(len(relationships)):
+                    now_name = dict(nodes[i]).get("name", "Unknown")
+                    next_name = dict(nodes[i + 1]).get("name", "Unknown")
+                    rel_type = relationships[i].type
+                    path_steps.append({
+                        "source": now_name,
+                        "target": next_name,
+                        "type": rel_type,
+                    })
+                if path_steps:
+                    all_paths.append(path_steps)
+            return all_paths
+        except Exception as e:
+            logger.error("Failed to find alternative paths: %s", str(e))
+            return []
+
     def explain_connection(self, entity_a: str, entity_b: str, user_id: str) -> Dict[str, Any]:
         """
         Finds the shortest path between two entities in Neo4j and uses the LLM to explain the connection.
@@ -39,7 +130,7 @@ class MultiHopReasoner:
         # 1. Fetch shortest path from Neo4j
         cypher = (
             "MATCH p = shortestPath("
-            "  (a:Entity {name: $entity_a, user_id: $user_id})-[*..4]-(b:Entity {name: $entity_b, user_id: $user_id})"
+            "  (a:Entity {name: $entity_a, user_id: $user_id})-[*..5]-(b:Entity {name: $entity_b, user_id: $user_id})"
             ") "
             "RETURN p"
         )
@@ -105,16 +196,27 @@ class MultiHopReasoner:
             
             explanation = response.content.strip()
 
+            # Find alternative paths
+            alt_paths = self.find_alternative_paths(entity_a, entity_b, user_id)
+            # Filter out the main path
+            main_path_key = tuple((s["source"], s["target"], s["type"]) for s in serialized_path)
+            alternative_paths = [
+                p for p in alt_paths
+                if tuple((s["source"], s["target"], s["type"]) for s in p) != main_path_key
+            ]
+
             return {
                 "found": True,
                 "explanation": explanation,
-                "path": serialized_path
+                "path": serialized_path,
+                "alternative_paths": alternative_paths[:2],
+                "hop_count": len(relationships)
             }
 
         except Exception as e:
             logger.error("Failed to execute path reasoning query: %s", str(e), exc_info=True)
             return {
                 "found": False,
-                "explanation": f"An error occurred while analyzing the connection: {str(e)}",
+                "explanation": "An internal error occurred while analyzing the connection.",
                 "path": []
             }

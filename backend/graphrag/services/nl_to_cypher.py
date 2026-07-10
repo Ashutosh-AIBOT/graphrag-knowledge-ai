@@ -1,3 +1,4 @@
+import re
 import logging
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
@@ -6,6 +7,16 @@ from .llm_client import get_llm
 from .neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------
+# Cypher Injection Prevention — block write operations
+# ----------------------------------------------------------------
+FORBIDDEN_KEYWORDS = [
+    'MERGE', 'CREATE', 'SET', 'DELETE', 'REMOVE', 'DETACH',
+    'DROP', 'ALTER', 'INSERT', 'UPDATE', 'WRITE',
+    'CALL', 'LOAD', 'PERIODIC', 'FOREACH', 'UNWIND',
+    'SHOW', 'GRANT', 'REVOKE', 'CREATE INDEX', 'CREATE CONSTRAINT'
+]
 
 class CypherQuery(BaseModel):
     """
@@ -47,19 +58,58 @@ class NLToCypher:
 
         self.chain = self.prompt | self.structured_llm
 
+    @staticmethod
+    def _validate_read_only(cypher: str) -> bool:
+        """
+        Returns True if the Cypher is read-only (safe), False if it contains write operations.
+        Splits into words to avoid false positives (e.g., 'RESET' contains 'SET').
+        """
+        words = re.findall(r'\b\w+\b', cypher.upper())
+        for keyword in FORBIDDEN_KEYWORDS:
+            if keyword in words:
+                return False
+        return True
+
+    @staticmethod
+    def _validate_tenant_isolation(cypher: str) -> bool:
+        """Ensure user_id filtering is present in the generated Cypher query."""
+        normalized = cypher.upper()
+        return 'USER_ID' in normalized or '$USER_ID' in normalized
+
     def execute_nl_query(self, question: str, user_id: str) -> Dict[str, Any]:
         """
         Translates a natural language question to Cypher, runs it, and returns results.
         """
         logger.info("Translating question to Cypher: '%s' (User: %s)", question, user_id)
-        
+
         try:
             # 1. Generate Cypher query
             result: CypherQuery = self.chain.invoke({"question": question})
             logger.info("Generated Cypher: %s", result.cypher)
 
-            # 2. Execute on Neo4j using client
-            # New code
+            # 2. Validate read-only (prevent Cypher injection)
+            if not self._validate_read_only(result.cypher):
+                logger.warning("BLOCKED write Cypher query: %s", result.cypher)
+                return {
+                    "cypher": result.cypher,
+                    "explanation": "Query blocked: only read-only Cypher queries are allowed.",
+                    "records": [],
+                    "success": False,
+                    "error": "Generated query contains write operations. Only read queries are permitted."
+                }
+
+            # 3. Validate tenant isolation (prevent cross-user data access)
+            if not self._validate_tenant_isolation(result.cypher):
+                logger.warning("BLOCKED Cypher query without tenant isolation: %s", result.cypher)
+                return {
+                    "cypher": result.cypher,
+                    "explanation": "Query blocked: must filter by user_id for multi-tenancy isolation.",
+                    "records": [],
+                    "success": False,
+                    "error": "Generated query must include user_id filtering."
+                }
+
+            # 4. Execute on Neo4j using client
             records = self.neo4j_client.execute_query(result.cypher, {"user_id": str(user_id)})
             logger.info("Executed Cypher successfully. Retrieved %d rows.", len(records))
 
@@ -76,5 +126,5 @@ class NLToCypher:
                 "explanation": "",
                 "records": [],
                 "success": False,
-                "error": str(e)
+                "error": "An internal error occurred while processing your query."
             }

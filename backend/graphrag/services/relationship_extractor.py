@@ -2,6 +2,7 @@ import logging
 from typing import List
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from .llm_client import get_llm
 
 logger = logging.getLogger(__name__)
@@ -57,9 +58,17 @@ class RelationshipExtractor:
 
         self.chain = self.prompt | self.structured_llm
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+        reraise=True
+    )
     def extract_relationships(self, text_content: str) -> List[dict]:
         """
         Processes a string chunk of text and returns a list of serialized relationship dicts.
+        Retries on transient connection errors with exponential backoff.
+        Raises on LLM failures to let graph_builder.py mark document as FAILED.
         """
         if not text_content or not text_content.strip():
             logger.warning("Empty text chunk provided to extract_relationships.")
@@ -68,11 +77,7 @@ class RelationshipExtractor:
         word_count = len(text_content.split())
         logger.info("Running relationship extraction on text chunk (Words: %d).", word_count)
 
-        try:
-            result: ExtractedRelationships = self.chain.invoke({"text_content": text_content})
-            extracted = [rel.model_dump() for rel in result.relationships]
-            logger.info("Successfully extracted %d relationships from text chunk.", len(extracted))
-            return extracted
-        except Exception as e:
-            logger.error("Failed during relationship extraction processing. Error: %s", str(e), exc_info=True)
-            return []
+        result: ExtractedRelationships = self.chain.invoke({"text_content": text_content})
+        extracted = [rel.model_dump() for rel in result.relationships]
+        logger.info("Successfully extracted %d relationships from text chunk.", len(extracted))
+        return extracted

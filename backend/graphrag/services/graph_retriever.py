@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Any
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from .llm_client import get_llm
@@ -81,6 +81,46 @@ class GraphRetriever:
         logger.info("Generated graph context (%d characters).", len(serialized_context))
         return serialized_context
 
+    def get_graph_as_json(self, user_id: str) -> Dict[str, Any]:
+        """
+        Serializes the full graph as JSON for frontend visualization.
+        Endpoint: GET /api/graph/
+        """
+        raw_data = self.neo4j_client.get_all_graph_data(user_id)
+
+        # Assign numeric IDs for vis.js / react-force-graph
+        node_id_map = {}
+        nodes = []
+        for i, node in enumerate(raw_data["nodes"]):
+            node_id_map[node["name"]] = i
+            nodes.append({
+                "id": i,
+                "name": node["name"],
+                "type": node.get("type", "Unknown"),
+                "description": node.get("description", ""),
+                "source_doc": node.get("source_doc", ""),
+                "page": node.get("page", 0)
+            })
+
+        edges = []
+        for edge in raw_data["edges"]:
+            source_id = node_id_map.get(edge["source"])
+            target_id = node_id_map.get(edge["target"])
+            if source_id is not None and target_id is not None:
+                edges.append({
+                    "source": source_id,
+                    "target": target_id,
+                    "type": edge["relationship_type"],
+                    "description": edge.get("description", ""),
+                    "confidence": edge.get("confidence", 1.0),
+                    "source_doc": edge.get("source_doc", "")
+                })
+
+        return {"nodes": nodes, "edges": edges}
+
+    def extract_entities(self, query: str) -> List[str]:
+        return self._extract_entities_from_query(query)
+
     def _extract_entities_from_query(self, query: str) -> List[str]:
         """
         Uses the LLM structured call to parse entity search terms.
@@ -118,19 +158,23 @@ class GraphRetriever:
 
             # 2. Parse all relationship edges in this path segment
             for rel in relationships:
-                # Get connected nodes from the path
-                start_node = nodes[rel.start_node.id if hasattr(rel.start_node, 'id') else 0]
-                end_node = nodes[rel.end_node.id if hasattr(rel.end_node, 'id') else 0]
-                
-                start_name = dict(start_node).get("name", "Unknown")
-                end_name = dict(end_node).get("name", "Unknown")
-                
+                # Use property-based lookup instead of rel.start_node.id (which is internal Neo4j ID)
+                start_props = dict(rel.start_node) if hasattr(rel, 'start_node') else {}
+                end_props = dict(rel.end_node) if hasattr(rel, 'end_node') else {}
+
+                start_name = start_props.get("name", "Unknown")
+                end_name = end_props.get("name", "Unknown")
+
                 rel_type = rel.type
-                properties = dict(rel)
-                desc = properties.get("description", "")
-                conf = properties.get("confidence", 1.0)
+                rel_props = dict(rel)
+                desc = rel_props.get("description", "")
+                conf = rel_props.get("confidence", 1.0)
 
                 # Format edge output description
                 desc_suffix = f" (Details: {desc})" if desc else ""
-                rel_str = f"[{dict(start_node).get('type', 'Entity')}] **{start_name}** --[{rel_type} (Confidence: {conf})]--> [{dict(end_node).get('type', 'Entity')}] **{end_name}**{desc_suffix}"
+                rel_str = (
+                    f"[{start_props.get('type', 'Entity')}] **{start_name}** "
+                    f"--[{rel_type} (Confidence: {conf})]--> "
+                    f"[{end_props.get('type', 'Entity')}] **{end_name}**{desc_suffix}"
+                )
                 unique_rels.add(rel_str)

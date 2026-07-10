@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 from rapidfuzz import fuzz
 
 logger = logging.getLogger(__name__)
@@ -7,7 +7,18 @@ logger = logging.getLogger(__name__)
 class EntityResolver:
     def __init__(self, similarity_threshold: float = 85.0):
         self.similarity_threshold = similarity_threshold
+        self.llm = None
+        self._init_llm()
         logger.info("Initializing EntityResolver with similarity threshold: %.1f", self.similarity_threshold)
+
+    def _init_llm(self):
+        """Initialize LLM for borderline disambiguation. Caches the instance."""
+        try:
+            from .llm_client import get_llm
+            self.llm = get_llm(temperature=0.0)
+        except Exception as e:
+            logger.warning("Could not initialize LLM for entity disambiguation: %s", str(e))
+            self.llm = None
 
     def resolve_entities(self, entities: List[dict], relationships: List[dict]) -> tuple[List[dict], List[dict]]:
         """
@@ -41,6 +52,14 @@ class EntityResolver:
                     if ratio >= self.similarity_threshold:
                         matched_canonical = existing
                         break
+                    # Borderline cases: ask LLM to disambiguate
+                    elif self.similarity_threshold - 15 <= ratio < self.similarity_threshold:
+                        if self._llm_confirm_duplicate(
+                            current['name'], existing['name'],
+                            current.get('type', ''), existing.get('type', '')
+                        ):
+                            matched_canonical = existing
+                            break
                 
                 if matched_canonical:
                     # Duplicate found! Merge current into matched_canonical
@@ -91,3 +110,45 @@ class EntityResolver:
                     len(resolved_entities), len(entities), len(rewritten_relationships))
                     
         return resolved_entities, rewritten_relationships
+
+    def _llm_confirm_duplicate(self, name_a: str, name_b: str, type_a: str, type_b: str) -> bool:
+        """
+        Uses LLM to determine if two borderline entities refer to the same real-world thing.
+        Returns True if they are the same entity.
+        """
+        if not self.llm:
+            return False
+
+        try:
+            from langchain_core.prompts import ChatPromptTemplate
+
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", (
+                    "You are an expert at entity resolution. Given two entity names and their types, "
+                    "determine if they refer to the same real-world entity.\n"
+                    "Answer ONLY 'yes' or 'no'.\n"
+                    "Consider: abbreviations, nicknames, partial names, and variations of the same entity."
+                )),
+                ("human", (
+                    "Entity A: '{name_a}' (Type: {type_a})\n"
+                    "Entity B: '{name_b}' (Type: {type_b})\n\n"
+                    "Do these refer to the same entity?"
+                ))
+            ])
+
+            chain = prompt | self.llm
+            response = chain.invoke({
+                "name_a": name_a,
+                "name_b": name_b,
+                "type_a": type_a,
+                "type_b": type_b
+            })
+
+            answer = response.content.strip().lower()
+            is_duplicate = answer.startswith("yes")
+            logger.info("LLM disambiguation: '%s' vs '%s' -> %s", name_a, name_b, is_duplicate)
+            return is_duplicate
+
+        except Exception as e:
+            logger.error("LLM disambiguation failed: %s", str(e))
+            return False

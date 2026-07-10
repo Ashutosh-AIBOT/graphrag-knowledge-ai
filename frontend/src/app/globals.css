@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: 0 0% 100%;
+    --bg-surface: 220 14% 96%;
+    --bg-elevated: 220 14% 94%;
+    --bg-sidebar: 220 14% 96%;
+    --accent-violet: 262 83% 58%;
+    --accent-indigo: 232 90% 65%;
+    --accent-cyan: 188 94% 42%;
+    --text-primary: 224 71% 4%;
+    --text-secondary: 224 10% 35%;
+    --text-muted: 220 9% 55%;
+    --border: 220 13% 91%;
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --error: 0 72% 55%;
+    --ring: 262 83% 58%;
+  }
+
+  .dark {
+    --bg-base: 224 71% 4%;
+    --bg-surface: 215 28% 11%;
+    --bg-elevated: 215 25% 15%;
+    --bg-sidebar: 215 28% 10%;
+    --accent-violet: 262 83% 58%;
+    --accent-indigo: 232 90% 65%;
+    --accent-cyan: 188 94% 42%;
+    --text-primary: 0 0% 98%;
+    --text-secondary: 215 20% 65%;
+    --text-muted: 215 15% 50%;
+    --border: 215 20% 15%;
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --error: 0 72% 55%;
+    --ring: 262 83% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-bg-base text-text-primary;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* React Force Graph canvas should fill container */
+.graph-canvas canvas {
+  outline: none;
+}

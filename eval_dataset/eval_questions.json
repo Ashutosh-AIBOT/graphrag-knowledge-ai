@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "category": "single_entity",
+    "difficulty": "easy",
+    "question": "Who is the CEO of Google?",
+    "expected_answer": "Sundar Pichai is the CEO of Google.",
+    "retrieval_mode": "graph",
+    "notes": "Tests basic entity-relationship traversal"
+  },
+  {
+    "id": 2,
+    "category": "single_entity",
+    "difficulty": "easy",
+    "question": "What technology does React depend on?",
+    "expected_answer": "React depends on JavaScript and the Virtual DOM.",
+    "retrieval_mode": "graph",
+    "notes": "Tests DEPENDS_ON relationship traversal"
+  },
+  {
+    "id": 3,
+    "category": "multi_hop",
+    "difficulty": "medium",
+    "question": "Who manages the team that works on Project X?",
+    "expected_answer": "The project manager of the team working on Project X is [extracted name].",
+    "retrieval_mode": "graph",
+    "notes": "Tests 2-hop traversal: Person MANAGES Person WORKS_AT Project"
+  },
+  {
+    "id": 4,
+    "category": "multi_hop",
+    "difficulty": "hard",
+    "question": "What skills does the manager of the team working on the authentication service have?",
+    "expected_answer": "The manager has skills in [extracted from graph].",
+    "retrieval_mode": "graph",
+    "notes": "Tests 3-hop traversal: Service → Team → Manager → Skills"
+  },
+  {
+    "id": 5,
+    "category": "multi_hop",
+    "difficulty": "hard",
+    "question": "Which organizations are located in the same city as the headquarters of the company that created ChatGPT?",
+    "expected_answer": "Organizations located in San Francisco include [extracted names].",
+    "retrieval_mode": "graph",
+    "notes": "Tests 3-hop: Product CREATED_BY Org LOCATED_IN Location ← Org"
+  },
+  {
+    "id": 6,
+    "category": "relationship",
+    "difficulty": "easy",
+    "question": "What companies are competitors of Google?",
+    "expected_answer": "Google's competitors include Microsoft, Apple, and Meta.",
+    "retrieval_mode": "graph",
+    "notes": "Tests COMPETES_WITH relationship"
+  },
+  {
+    "id": 7,
+    "category": "relationship",
+    "difficulty": "medium",
+    "question": "List all partnerships mentioned in the document.",
+    "expected_answer": "The partnerships include [list of PARTNER_OF relationships].",
+    "retrieval_mode": "graph",
+    "notes": "Tests PARTNER_OF relationship enumeration"
+  },
+  {
+    "id": 8,
+    "category": "summarization",
+    "difficulty": "medium",
+    "question": "Give me an overview of the organizational structure described in the document.",
+    "expected_answer": "The document describes [hierarchy summary with entities and relationships].",
+    "retrieval_mode": "hybrid",
+    "notes": "Tests community-level summarization capability"
+  },
+  {
+    "id": 9,
+    "category": "summarization",
+    "difficulty": "hard",
+    "question": "Summarize the key technology stack and dependencies mentioned across all documents.",
+    "expected_answer": "The technology stack includes [technologies] with dependencies on [dependencies].",
+    "retrieval_mode": "hybrid",
+    "notes": "Tests cross-document synthesis"
+  },
+  {
+    "id": 10,
+    "category": "vector_specific",
+    "difficulty": "easy",
+    "question": "What is the main topic of the uploaded documents?",
+    "expected_answer": "The documents primarily discuss [topic].",
+    "retrieval_mode": "vector",
+    "notes": "Tests basic vector similarity retrieval"
+  },
+  {
+    "id": 11,
+    "category": "vector_specific",
+    "difficulty": "medium",
+    "question": "Find all sections that discuss machine learning concepts.",
+    "expected_answer": "Machine learning is discussed in [sections with ML-related content].",
+    "retrieval_mode": "vector",
+    "notes": "Tests semantic similarity for topic-specific retrieval"
+  },
+  {
+    "id": 12,
+    "category": "hybrid",
+    "difficulty": "medium",
+    "question": "How does the authentication system work and who is responsible for it?",
+    "expected_answer": "The authentication system [description] and is managed by [person/team].",
+    "retrieval_mode": "hybrid",
+    "notes": "Tests combining vector context with graph relationships"
+  },
+  {
+    "id": 13,
+    "category": "hybrid",
+    "difficulty": "hard",
+    "question": "What are the risks to the project timeline and which teams are affected?",
+    "expected_answer": "Risks include [risks from text] affecting [teams from graph].",
+    "retrieval_mode": "hybrid",
+    "notes": "Tests combining textual risk analysis with organizational graph"
+  },
+  {
+    "id": 14,
+    "category": "community",
+    "difficulty": "medium",
+    "question": "What are the main topic clusters in this knowledge graph?",
+    "expected_answer": "The graph contains communities focused on [community themes].",
+    "retrieval_mode": "graph",
+    "notes": "Tests community detection and thematic grouping"
+  },
+  {
+    "id": 15,
+    "category": "community",
+    "difficulty": "hard",
+    "question": "Which community of entities is most central to the overall knowledge graph?",
+    "expected_answer": "The most central community focuses on [theme] with [key entities].",
+    "retrieval_mode": "graph",
+    "notes": "Tests community importance ranking via degree centrality"
+  },
+  {
+    "id": 16,
+    "category": "comparison",
+    "difficulty": "medium",
+    "question": "Compare graph-based retrieval with vector-based retrieval for this question: What is the company structure?",
+    "expected_answer": "Graph retrieval provides structured org chart data; vector retrieval provides relevant text passages.",
+    "retrieval_mode": "compare",
+    "notes": "Tests retrieval mode comparison capability"
+  },
+  {
+    "id": 17,
+    "category": "cypher",
+    "difficulty": "medium",
+    "question": "Show me all Person nodes that have more than 3 connections.",
+    "expected_answer": "Cypher: MATCH (p:Person)-[r]-() WITH p, count(r) AS degree WHERE degree > 3 RETURN p.name, degree",
+    "retrieval_mode": "graph",
+    "notes": "Tests NL-to-Cypher translation"
+  },
+  {
+    "id": 18,
+    "category": "cypher",
+    "difficulty": "hard",
+    "question": "Find all entities that are within 2 hops of 'Google' and belong to the TECHNOLOGY type.",
+    "expected_answer": "Cypher: MATCH path = (g:Organization {name: 'Google'})-[*1..2]-(t:Technology) RETURN t",
+    "retrieval_mode": "graph",
+    "notes": "Tests multi-hop Cypher with type filtering"
+  },
+  {
+    "id": 19,
+    "category": "edge_case",
+    "difficulty": "hard",
+    "question": "What entities exist in the graph that have no relationships?",
+    "expected_answer": "Orphan entities include [list of disconnected nodes].",
+    "retrieval_mode": "graph",
+    "notes": "Tests handling of disconnected graph components"
+  },
+  {
+    "id": 20,
+    "category": "edge_case",
+    "difficulty": "hard",
+    "question": "Which entities appear in multiple documents?",
+    "expected_answer": "Entities found in multiple documents: [list with document references].",
+    "retrieval_mode": "graph",
+    "notes": "Tests cross-document entity resolution"
+  }
+]

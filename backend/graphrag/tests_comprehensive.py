@@ -566,20 +566,15 @@ class QueryTests(APITestCase):
 
     @patch("graphrag.views.RAGChain")
     def test_query_unhandled_exception_returns_500(self, mock_rag_cls):
-        """Unexpected exceptions in the RAG layer return a safe 500.
-
-        SECURITY BUG: The view currently leaks ``str(e)`` in the error
-        response body.  When hardened, flip the assertion below.
-        """
+        """Unexpected exceptions in the RAG layer return a safe 500
+        without leaking internal details."""
         mock_rag = mock_rag_cls.return_value
         mock_rag.generate_answer.side_effect = RuntimeError("Neo4j connection lost")
 
         response = self.client.post(self.url, {"query": "boom"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        # FIXME: This assertion documents the LEAK.  When the view is
-        # hardened, change to: self.assertNotIn("Neo4j connection lost", str(response.data))
-        self.assertIn("Neo4j connection lost", str(response.data))
+        self.assertNotIn("Neo4j connection lost", str(response.data))
 
     @patch("graphrag.views.RAGChain")
     def test_query_passes_user_id(self, mock_rag_cls):
@@ -802,15 +797,7 @@ class ErrorHandlingTests(APITestCase):
 
     @patch("graphrag.views.RAGChain")
     def test_500_error_returns_generic_message(self, mock_rag):
-        """Server errors currently return the exception string in the response.
-
-        SECURITY BUG: The view at ``views.py:202`` uses
-        ``f"Internal Server Error: {str(e)}"`` which leaks internal error
-        details (stack traces, DB errors, etc.) to the client.  This test
-        documents the *current* (insecure) behaviour.  When the view is
-        fixed to use a static message like "Internal Server Error", flip
-        the assertion below.
-        """
+        """Server errors return a generic message without leaking internals."""
         mock_rag.return_value.generate_answer.side_effect = Exception("secret internal detail")
 
         response = self.client.post(
@@ -819,9 +806,7 @@ class ErrorHandlingTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         body = json.dumps(response.data)
-        # FIXME: This assertion documents the LEAK.  When the view is
-        # hardened, change to: self.assertNotIn("secret internal detail", body)
-        self.assertIn("secret internal detail", body)
+        self.assertNotIn("secret internal detail", body)
 
     def test_method_not_allowed(self):
         """GET on a POST-only endpoint returns 405."""
@@ -896,7 +881,7 @@ class SecurityTests(APITestCase):
 
     @patch("graphrag.views.trigger_ingestion_background")
     def test_file_type_validation_rejects_executables(self, mock_bg):
-        """Upload rejects files with executable extensions if configured."""
+        """Upload rejects files with executable extensions."""
         self.client.force_authenticate(user=self.user)
         exe_file = SimpleUploadedFile(
             "malware.exe", b"MZ\x90\x00fake-exe", content_type="application/octet-stream"
@@ -904,11 +889,7 @@ class SecurityTests(APITestCase):
         response = self.client.post(
             reverse("document_upload"), {"file": exe_file}, format="multipart"
         )
-        # The current implementation does not enforce extension filtering,
-        # so we verify that the file IS accepted but document the expectation.
-        # If file-type filtering is added later, change this assertion to 400.
-        self.assertIn(response.status_code,
-                      [status.HTTP_202_ACCEPTED, status.HTTP_400_BAD_REQUEST])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch("graphrag.views.trigger_ingestion_background")
     def test_file_type_validation_accepts_valid_types(self, mock_bg):
@@ -936,17 +917,14 @@ class SecurityTests(APITestCase):
                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE])
 
     def test_empty_file_rejected(self):
-        """An empty file upload should be rejected."""
+        """An empty file upload is rejected with 400."""
         empty_file = SimpleUploadedFile(
             "empty.txt", b"", content_type="text/plain"
         )
         response = self.client.post(
             reverse("document_upload"), {"file": empty_file}, format="multipart"
         )
-        # The current view may accept empty files; if file-size validation
-        # is added this should become 400. For now we verify no 500.
-        self.assertIn(response.status_code,
-                      [status.HTTP_202_ACCEPTED, status.HTTP_400_BAD_REQUEST])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     # ---- IDOR Prevention --------------------------------------------------
 
@@ -1175,3 +1153,499 @@ class QueryLogModelTests(APITestCase):
             response_time=0.1,
         )
         self.assertEqual(log.retrieval_mode, QueryLog.RetrievalMode.HYBRID)
+
+
+# ===========================================================================
+# 10. GRAPH ENDPOINT TESTS (NEW)
+# ===========================================================================
+
+class GraphEndpointTests(APITestCase):
+    """Tests for all /api/graph/* endpoints."""
+
+    def setUp(self):
+        self.user = _create_user(username="graphep", email="graphep@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("graphrag.views.GraphRetriever")
+    def test_graph_data_view(self, mock_retriever):
+        """GET /api/graph/ returns nodes and edges."""
+        mock_retriever.return_value.get_graph_as_json.return_value = {
+            "nodes": [{"id": 0, "label": "Google", "type": "ORGANIZATION"}],
+            "edges": []
+        }
+        response = self.client.get(reverse("graph_data"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("nodes", response.data)
+        self.assertIn("edges", response.data)
+
+    @patch("graphrag.views.Neo4jClient")
+    def test_graph_entity_detail(self, mock_neo4j):
+        """GET /api/graph/entity/{name}/ returns entity details."""
+        mock_neo4j.return_value.get_entity_details.return_value = {
+            "entity": {"name": "Google", "type": "ORGANIZATION", "description": "Tech company"},
+            "relationships": []
+        }
+        response = self.client.get(reverse("graph_entity_detail", args=["Google"]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("graphrag.views.Neo4jClient")
+    def test_graph_entity_not_found(self, mock_neo4j):
+        """GET /api/graph/entity/{name}/ returns 404 for missing entity."""
+        mock_neo4j.return_value.get_entity_details.return_value = None
+        response = self.client.get(reverse("graph_entity_detail", args=["Nonexistent"]))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("graphrag.views.Neo4jClient")
+    def test_graph_stats(self, mock_neo4j):
+        """GET /api/graph/stats/ returns graph statistics."""
+        mock_neo4j.return_value.get_graph_statistics.return_value = {
+            "nodes_count": 10,
+            "edges_count": 15,
+            "type_distribution": [{"type": "PERSON", "count": 5}]
+        }
+        response = self.client.get(reverse("graph_stats"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["nodes_count"], 10)
+
+    @patch("graphrag.views.Neo4jClient")
+    def test_graph_search(self, mock_neo4j):
+        """POST /api/graph/search/ returns matching entities."""
+        mock_neo4j.return_value.search_entities.return_value = [
+            {"name": "Google", "type": "ORGANIZATION", "description": "Tech company"}
+        ]
+        response = self.client.post(
+            reverse("graph_search"), {"query": "Google"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+
+    @patch("graphrag.views.Neo4jClient")
+    def test_graph_search_empty_query(self, mock_neo4j):
+        """POST /api/graph/search/ rejects empty query."""
+        response = self.client.post(
+            reverse("graph_search"), {"query": ""}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("graphrag.views.NLToCypher")
+    def test_graph_cypher(self, mock_svc):
+        """POST /api/graph/cypher/ translates and executes Cypher."""
+        mock_svc.return_value.execute_nl_query.return_value = {
+            "success": True,
+            "cypher": "MATCH (n) RETURN n LIMIT 5",
+            "records": [{"n": "Node1"}],
+        }
+        response = self.client.post(
+            reverse("graph_cypher"), {"query": "Show all nodes"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("graphrag.views.NLToCypher")
+    def test_graph_cypher_empty_query(self, mock_svc):
+        """POST /api/graph/cypher/ rejects empty query."""
+        response = self.client.post(
+            reverse("graph_cypher"), {"query": ""}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("graphrag.views.MultiHopReasoner")
+    def test_graph_path(self, mock_svc):
+        """GET /api/graph/path/ finds path between entities."""
+        mock_svc.return_value.explain_connection.return_value = {
+            "success": True,
+            "path": ["EntityA", "EntityB"],
+            "explanation": "They are related.",
+        }
+        response = self.client.get(
+            reverse("graph_path"), {"entity_a": "Google", "entity_b": "DeepMind"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_graph_path_missing_params(self):
+        """GET /api/graph/path/ rejects missing entity params."""
+        response = self.client.get(reverse("graph_path"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ===========================================================================
+# 11. COMMUNITY ENDPOINT TESTS (NEW)
+# ===========================================================================
+
+class CommunityEndpointTests(APITestCase):
+    """Tests for /api/graph/communities/ endpoints."""
+
+    def setUp(self):
+        self.user = _create_user(username="commuser", email="commuser@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("graphrag.views.CommunityDetector")
+    def test_community_list(self, mock_detector):
+        """GET /api/graph/communities/ returns community list."""
+        mock_detector.return_value.get_all_communities.return_value = [
+            {
+                "id": 1,
+                "label": "Tech Companies",
+                "summary": "A community of technology organizations.",
+                "member_count": 3,
+                "members": ["Google", "Microsoft", "Apple"],
+                "member_details": []
+            }
+        ]
+        response = self.client.get(reverse("graph_communities"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+
+    @patch("graphrag.views.CommunityDetector")
+    def test_community_detail(self, mock_detector):
+        """GET /api/graph/communities/{id}/ returns community detail."""
+        mock_detector.return_value.get_community_by_id.return_value = {
+            "id": 1,
+            "label": "Tech Companies",
+            "summary": "Summary here.",
+            "member_count": 3,
+            "members": ["Google", "Microsoft", "Apple"],
+            "member_details": [
+                {"name": "Google", "type": "ORGANIZATION", "description": "..."}
+            ]
+        }
+        response = self.client.get(reverse("graph_community_detail", args=[1]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("graphrag.views.CommunityDetector")
+    def test_community_not_found(self, mock_detector):
+        """GET /api/graph/communities/{id}/ returns 404 for missing."""
+        mock_detector.return_value.get_community_by_id.return_value = None
+        response = self.client.get(reverse("graph_community_detail", args=[999]))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+# ===========================================================================
+# 12. QUERY COMPARE TESTS (NEW)
+# ===========================================================================
+
+class QueryCompareTests(APITestCase):
+    """Tests for POST /api/query/compare/."""
+
+    def setUp(self):
+        self.user = _create_user(username="cmpuser", email="cmpuser@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("graphrag.views.RAGChain")
+    def test_compare_returns_all_modes(self, mock_rag):
+        """Compare endpoint returns graph, vector, and hybrid results."""
+        mock_rag.return_value.generate_answer.return_value = {
+            "success": True, "answer": "Test answer", "sources": ["doc.pdf"]
+        }
+        response = self.client.post(
+            reverse("query_compare"), {"query": "What is AI?"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("graph", response.data["comparisons"])
+        self.assertIn("vector", response.data["comparisons"])
+        self.assertIn("hybrid", response.data["comparisons"])
+        self.assertEqual(mock_rag.return_value.generate_answer.call_count, 3)
+
+    def test_compare_empty_query(self):
+        """Compare rejects empty query."""
+        response = self.client.post(
+            reverse("query_compare"), {"query": ""}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ===========================================================================
+# 13. DEDICATED QUERY MODE TESTS (NEW)
+# ===========================================================================
+
+class DedicatedQueryModeTests(APITestCase):
+    """Tests for dedicated /api/query/graph-only/ and /api/query/vector-only/."""
+
+    def setUp(self):
+        self.user = _create_user(username="modeuser", email="modeuser@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("graphrag.views.RAGChain")
+    def test_graph_only_query(self, mock_rag):
+        """POST /api/query/graph-only/ uses graph mode."""
+        mock_rag.return_value.generate_answer.return_value = {
+            "success": True, "answer": "Graph answer"
+        }
+        response = self.client.post(
+            reverse("query_graph_only"), {"query": "Show relationships"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_args = mock_rag.return_value.generate_answer.call_args
+        # mode is passed as keyword arg
+        self.assertEqual(call_args[1]["mode"], "graph")
+
+    @patch("graphrag.views.RAGChain")
+    def test_vector_only_query(self, mock_rag):
+        """POST /api/query/vector-only/ uses vector mode."""
+        mock_rag.return_value.generate_answer.return_value = {
+            "success": True, "answer": "Vector answer"
+        }
+        response = self.client.post(
+            reverse("query_vector_only"), {"query": "Semantic search"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_args = mock_rag.return_value.generate_answer.call_args
+        # mode is passed as keyword arg
+        self.assertEqual(call_args[1]["mode"], "vector")
+
+    def test_graph_only_empty_query(self):
+        """Graph-only rejects empty query."""
+        response = self.client.post(
+            reverse("query_graph_only"), {"query": ""}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_vector_only_empty_query(self):
+        """Vector-only rejects empty query."""
+        response = self.client.post(
+            reverse("query_vector_only"), {"query": ""}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ===========================================================================
+# 14. HEALTH CHECK TESTS (NEW)
+# ===========================================================================
+
+class HealthCheckTests(APITestCase):
+    """Tests for GET /api/health/."""
+
+    def test_health_check_no_auth_required(self):
+        """Health check does not require authentication."""
+        response = self.client.get(reverse("health"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("status", response.data)
+        self.assertIn("services", response.data)
+
+    @patch("graphrag.views.Neo4jClient")
+    def test_health_check_neo4j_healthy(self, mock_neo4j):
+        """Health check returns healthy when Neo4j is reachable."""
+        mock_neo4j.return_value.execute_query.return_value = [{"test": 1}]
+        response = self.client.get(reverse("health"))
+        self.assertEqual(response.data["services"]["neo4j"], "healthy")
+        self.assertEqual(response.data["status"], "healthy")
+
+    @patch("graphrag.views.Neo4jClient")
+    def test_health_check_neo4j_unhealthy(self, mock_neo4j):
+        """Health check returns degraded when Neo4j is unreachable."""
+        mock_neo4j.return_value.execute_query.side_effect = Exception("Connection refused")
+        response = self.client.get(reverse("health"))
+        self.assertEqual(response.data["services"]["neo4j"], "unhealthy")
+        self.assertEqual(response.data["status"], "degraded")
+
+
+# ===========================================================================
+# 15. QUERY LOGGING TESTS (NEW)
+# ===========================================================================
+
+class QueryLoggingTests(APITestCase):
+    """Tests that queries are logged to QueryLog model."""
+
+    def setUp(self):
+        self.user = _create_user(username="logtester", email="logtester@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("graphrag.views.RAGChain")
+    def test_query_creates_log_entry(self, mock_rag):
+        """Successful query creates a QueryLog record."""
+        mock_rag.return_value.generate_answer.return_value = {
+            "success": True, "answer": "Test answer"
+        }
+        initial_count = QueryLog.objects.count()
+        self.client.post(
+            reverse("query"), {"query": "Test query"}, format="json"
+        )
+        self.assertEqual(QueryLog.objects.count(), initial_count + 1)
+
+        log = QueryLog.objects.latest("created_at")
+        self.assertEqual(log.query_text, "Test query")
+        self.assertEqual(log.user, self.user)
+
+    @patch("graphrag.views.RAGChain")
+    def test_failed_query_creates_log_entry(self, mock_rag):
+        """Failed query also creates a QueryLog record."""
+        mock_rag.return_value.generate_answer.side_effect = Exception("Boom")
+        initial_count = QueryLog.objects.count()
+        self.client.post(
+            reverse("query"), {"query": "Failing query"}, format="json"
+        )
+        self.assertEqual(QueryLog.objects.count(), initial_count + 1)
+
+
+# ===========================================================================
+# 16. FILE VALIDATION TESTS (NEW)
+# ===========================================================================
+
+class FileValidationTests(APITestCase):
+    """Tests for file upload validation."""
+
+    def setUp(self):
+        self.user = _create_user(username="fileval", email="fileval@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("graphrag.views.trigger_ingestion_background")
+    def test_reject_exe_file(self, mock_bg):
+        """Executable files are rejected."""
+        exe_file = SimpleUploadedFile(
+            "malware.exe", b"MZ\x90\x00", content_type="application/octet-stream"
+        )
+        response = self.client.post(
+            reverse("document_upload"), {"file": exe_file}, format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("graphrag.views.trigger_ingestion_background")
+    def test_reject_empty_file(self, mock_bg):
+        """Empty files are rejected."""
+        empty_file = SimpleUploadedFile("empty.txt", b"", content_type="text/plain")
+        response = self.client.post(
+            reverse("document_upload"), {"file": empty_file}, format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("graphrag.views.trigger_ingestion_background")
+    def test_accept_valid_pdf(self, mock_bg):
+        """Valid PDF files are accepted."""
+        pdf_file = SimpleUploadedFile(
+            "test.pdf", b"%PDF-1.4 fake", content_type="application/pdf"
+        )
+        response = self.client.post(
+            reverse("document_upload"), {"file": pdf_file}, format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+    @patch("graphrag.views.trigger_ingestion_background")
+    def test_reject_large_file(self, mock_bg):
+        """Files over 10MB are rejected."""
+        large_file = SimpleUploadedFile(
+            "large.txt", b"x" * (11 * 1024 * 1024), content_type="text/plain"
+        )
+        response = self.client.post(
+            reverse("document_upload"), {"file": large_file}, format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+
+# ===========================================================================
+# 17. CYPHER INJECTION VALIDATION TESTS (NEW)
+# ===========================================================================
+
+class CypherInjectionValidationTests(APITestCase):
+    """Tests for Cypher injection prevention in nl_to_cypher service."""
+
+    def test_validate_read_only_safe_query(self):
+        """Read-only queries pass validation."""
+        from .services.nl_to_cypher import NLToCypher
+        safe_cypher = "MATCH (n:Entity {user_id: $user_id}) RETURN n.name LIMIT 10"
+        self.assertTrue(NLToCypher._validate_read_only(safe_cypher))
+
+    def test_validate_read_only_blocks_delete(self):
+        """DELETE queries are blocked."""
+        from .services.nl_to_cypher import NLToCypher
+        bad_cypher = "MATCH (n) DELETE n"
+        self.assertFalse(NLToCypher._validate_read_only(bad_cypher))
+
+    def test_validate_read_only_blocks_detach_delete(self):
+        """DETACH DELETE queries are blocked."""
+        from .services.nl_to_cypher import NLToCypher
+        bad_cypher = "MATCH (n) DETACH DELETE n"
+        self.assertFalse(NLToCypher._validate_read_only(bad_cypher))
+
+    def test_validate_read_only_blocks_create(self):
+        """CREATE queries are blocked."""
+        from .services.nl_to_cypher import NLToCypher
+        bad_cypher = "CREATE (n:Entity {name: 'test'})"
+        self.assertFalse(NLToCypher._validate_read_only(bad_cypher))
+
+    def test_validate_read_only_blocks_merge(self):
+        """MERGE queries are blocked."""
+        from .services.nl_to_cypher import NLToCypher
+        bad_cypher = "MERGE (n:Entity {name: 'test'})"
+        self.assertFalse(NLToCypher._validate_read_only(bad_cypher))
+
+    def test_validate_read_only_blocks_set(self):
+        """SET queries are blocked."""
+        from .services.nl_to_cypher import NLToCypher
+        bad_cypher = "MATCH (n) SET n.name = 'hacked'"
+        self.assertFalse(NLToCypher._validate_read_only(bad_cypher))
+
+    def test_validate_read_only_safe_with_reset(self):
+        """RESET is not blocked (doesn't contain SET as a whole word)."""
+        from .services.nl_to_cypher import NLToCypher
+        safe_cypher = "MATCH (n) RETURN n LIMIT 10 RESET"
+        # RESET contains SET but word-boundary check prevents false positive
+        result = NLToCypher._validate_read_only(safe_cypher)
+        # This should be True because RESET is not in FORBIDDEN_KEYWORDS as a whole word
+        # Actually, let me check: FORBIDDEN_KEYWORDS has 'SET', and RESET contains SET
+        # But we use word boundaries via re.findall(r'\b\w+\b', ...)
+        # 'RESET' would be matched as a single word 'RESET', not as 'SET'
+        self.assertTrue(result)
+
+
+# ===========================================================================
+# 18. EVALUATION ENDPOINT TESTS (NEW)
+# ===========================================================================
+
+class EvaluationEndpointTests(APITestCase):
+    """Tests for GET /api/evaluation/."""
+
+    def setUp(self):
+        self.user = _create_user(username="evaluser", email="evaluser@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    def test_evaluation_empty_pairs(self):
+        """Returns empty list when no evaluation pairs exist."""
+        response = self.client.get(reverse("evaluation"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["evaluations"], [])
+
+    @patch("graphrag.views.RAGChain")
+    def test_evaluation_with_pairs(self, mock_rag):
+        """Returns results when evaluation pairs exist."""
+        from .models import EvaluationPair
+        EvaluationPair.objects.create(
+            user=self.user,
+            question="What is AI?",
+            expected_answer="Artificial Intelligence",
+            is_active=True
+        )
+        mock_rag.return_value.generate_answer.return_value = {
+            "success": True, "answer": "AI is artificial intelligence."
+        }
+        response = self.client.get(reverse("evaluation"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["evaluations"]), 1)
+        self.assertIn("summary", response.data)
+
+
+# ===========================================================================
+# 19. SECURITY HARDENING TESTS (NEW)
+# ===========================================================================
+
+class SecurityHardeningTests(APITestCase):
+    """Tests verifying security fixes are in place."""
+
+    def setUp(self):
+        self.user = _create_user(username="secfix", email="secfix@gmail.com")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("graphrag.views.RAGChain")
+    def test_500_error_no_internal_leak(self, mock_rag):
+        """500 errors should NOT leak internal details."""
+        mock_rag.return_value.generate_answer.side_effect = Exception("secret_db_password")
+        response = self.client.post(
+            reverse("query"), {"query": "leak test"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        body = json.dumps(response.data)
+        self.assertNotIn("secret_db_password", body)
+
+    def test_health_check_accessible_without_auth(self):
+        """Health endpoint should be accessible without auth."""
+        client = APIClient()
+        response = client.get(reverse("health"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

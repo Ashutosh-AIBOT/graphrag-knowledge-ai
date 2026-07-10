@@ -60,7 +60,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         # 1. Verify match
         if password != confirm_password:
             raise serializers.ValidationError({"password": "Passwords do not match."})
-        # 2. Custom Strict Character Check (Uppercase, Lowercase, Number, Special Char)
+        # 2. Blank / spaces-only check
+        if not password or password.strip() == '':
+            raise serializers.ValidationError({"password": "Password cannot be empty or contain only spaces."})
+        # 3. Custom Strict Character Check (Uppercase, Lowercase, Number, Special Char)
         if not re.search(r"[A-Z]", password):
             raise serializers.ValidationError({"password": "Password must contain at least one uppercase letter."})
         if not re.search(r"[a-z]", password):
@@ -80,12 +83,14 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = (
             'id', 'user', 'name', 'file', 'file_url', 'status', 
-            'entity_count', 'relationship_count', 'error_message', 
+            'entity_count', 'relationship_count', 'error_message',
+            'source', 'processing_progress', 'processing_step',
             'created_at', 'updated_at'
         )
         read_only_fields = (
             'id', 'user', 'status', 'entity_count', 'relationship_count', 
-            'error_message', 'created_at', 'updated_at'
+            'error_message', 'processing_progress', 'processing_step',
+            'created_at', 'updated_at'
         )
 
     def get_file_url(self, obj):

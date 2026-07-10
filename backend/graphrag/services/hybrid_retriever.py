@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict
+from typing import List, Dict, Any
 from .graph_retriever import GraphRetriever
 from .vector_retriever import VectorRetriever
 
@@ -11,7 +11,7 @@ class HybridRetriever:
         self.graph_retriever = GraphRetriever()
         self.vector_retriever = VectorRetriever()
 
-    def retrieve_combined_context(self, query: str, user_id: str) -> Dict[str, any]:
+    def retrieve_combined_context(self, query: str, user_id: str) -> Dict[str, Any]:
         """
         Runs both graph and vector search and returns a combined context dictionary.
         Determines the retrieval strategy route (GRAPH_ONLY, VECTOR_ONLY, or HYBRID).

@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Dict, Any, List
 from langchain_core.prompts import ChatPromptTemplate
 from .llm_client import get_llm
@@ -8,14 +9,28 @@ from .hybrid_retriever import HybridRetriever
 
 logger = logging.getLogger(__name__)
 
+# Cache retrievers to avoid reinitializing embedding models per request
+_graph_retriever = None
+_vector_retriever = None
+_hybrid_retriever = None
+
+
 class RAGChain:
     def __init__(self):
         logger.info("Initializing RAGChain answer generation service.")
-        self.llm = get_llm(temperature=0.2) # Low temperature for high factual accuracy
+        self.llm = get_llm(temperature=0.2)
         
-        self.graph_retriever = GraphRetriever()
-        self.vector_retriever = VectorRetriever()
-        self.hybrid_retriever = HybridRetriever()
+        global _graph_retriever, _vector_retriever, _hybrid_retriever
+        if _graph_retriever is None:
+            _graph_retriever = GraphRetriever()
+        if _vector_retriever is None:
+            _vector_retriever = VectorRetriever()
+        if _hybrid_retriever is None:
+            _hybrid_retriever = HybridRetriever()
+
+        self.graph_retriever = _graph_retriever
+        self.vector_retriever = _vector_retriever
+        self.hybrid_retriever = _hybrid_retriever
 
         # Define prompts for each mode
         self.system_prompts = {
@@ -56,6 +71,7 @@ class RAGChain:
         context = ""
         sources = []
         strategy_used = mode.upper()
+        highlighted_entities = []
 
         # 1. Fetch Context depending on the Retrieval Mode
         try:
@@ -89,6 +105,12 @@ class RAGChain:
                         ent_name = line.split("**")[1]
                         sources.append(f"Graph Node: {ent_name}")
 
+            # Extract entities from query for graph highlighting
+            try:
+                highlighted_entities = self.graph_retriever.extract_entities(query)
+            except Exception:
+                highlighted_entities = []
+
         except Exception as e:
             logger.error("Failed to retrieve context in %s mode. Error: %s", mode, str(e), exc_info=True)
             return {
@@ -96,7 +118,11 @@ class RAGChain:
                 "context": "",
                 "sources": [],
                 "strategy": mode.upper(),
-                "success": False
+                "success": False,
+                "confidence": 0.0,
+                "highlighted_entities": [],
+                "paths": [],
+                "hops": []
             }
 
         # 2. Build Chat Prompt template
@@ -125,19 +151,38 @@ class RAGChain:
             # Deduplicate sources list
             sources = list(sorted(set(sources)))
 
+            # Calculate confidence based on answer quality and sources
+            confidence = self._calculate_confidence(answer, sources)
+
             return {
                 "answer": answer,
                 "context": context,
                 "sources": sources,
                 "strategy": strategy_used,
-                "success": True
+                "success": True,
+                "confidence": confidence,
+                "highlighted_entities": highlighted_entities,
+                "paths": [],
+                "hops": []
             }
         except Exception as e:
             logger.error("Failed to generate LLM response: %s", str(e), exc_info=True)
             return {
-                "answer": f"Failed to generate answer. Error: {str(e)}",
+                "answer": "Failed to generate answer due to an internal error.",
                 "context": context,
                 "sources": sources,
                 "strategy": strategy_used,
-                "success": False
+                "success": False,
+                "confidence": 0.0,
+                "highlighted_entities": highlighted_entities,
+                "paths": [],
+                "hops": []
             }
+
+    @staticmethod
+    def _calculate_confidence(answer: str, sources: List[str]) -> float:
+        if not answer or len(answer) < 10:
+            return 0.0
+        answer_score = min(len(answer) / 300, 0.7)
+        source_score = min(len(sources) * 0.06, 0.3)
+        return round(min(answer_score + source_score, 1.0), 2)
