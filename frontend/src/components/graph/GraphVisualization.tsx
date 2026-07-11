@@ -181,7 +181,23 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
           const confStr = conf != null ? ` (${Math.round(conf * 100)}%)` : '';
           return rel.replace(/_/g, ' ') + confStr;
         }}
-        linkOpacity={(l: any) => (pathSet.size > 0 && !isPathEdge(l as FGLink) ? 0.1 : 0.4)}
+        linkOpacity={(l: any) => {
+          if (pathSet.size > 0) {
+            return isPathEdge(l as FGLink) ? 0.4 : 0.1;
+          }
+          if (highlightSet.size > 0) {
+            const s = typeof l.source === 'object' ? l.source.id : l.source;
+            const t = typeof l.target === 'object' ? l.target.id : l.target;
+            const sName = typeof l.source === 'object' ? l.source.name : undefined;
+            const tName = typeof l.target === 'object' ? l.target.name : undefined;
+
+            const sHighlighted = highlightSet.has(s) || (sName && highlightSet.has(sName));
+            const tHighlighted = highlightSet.has(t) || (tName && highlightSet.has(tName));
+
+            return sHighlighted && tHighlighted ? 0.4 : 0.08;
+          }
+          return 0.4;
+        }}
         linkDirectionalParticles={(l: any) => (isPathEdge(l as FGLink) ? 3 : 0)}
         linkDirectionalParticleColor={() => 'hsl(188 94% 60%)'}
         linkDirectionalParticleSpeed={0.01}

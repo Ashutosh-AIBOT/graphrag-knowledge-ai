@@ -706,6 +706,7 @@ class CommunityListView(APIView):
                     "label": comm.get("label", ""),
                     "summary": comm.get("summary", ""),
                     "member_count": comm["member_count"],
+                    "relationship_count": comm.get("relationship_count", 0),
                     "members": comm["members"]
                 })
 

@@ -62,18 +62,30 @@ class CommunityDetector:
 
         # 5. Build community objects
         community_list = []
-        for comm_id, members in communities.items():
+        for i, (comm_id, members) in enumerate(communities.items()):
             if len(members) < 2:
                 continue  # Skip singleton communities
             member_details = [
                 entity_details.get(m, {"name": m, "type": "Unknown", "description": ""})
                 for m in members
             ]
+            
+            # Count unique internal relationships
+            members_set = set(members)
+            seen_rels = set()
+            for edge in edges:
+                s, t = edge["source"], edge["target"]
+                if s in members_set and t in members_set:
+                    pair = tuple(sorted([s, t]))
+                    seen_rels.add(pair)
+            relationship_count = len(seen_rels)
+
             community_list.append({
-                "id": comm_id,
-                "members": members,
+                "id": i + 1,  # Sequential integer ID
+                "members": list(members),
                 "member_count": len(members),
-                "member_details": member_details
+                "member_details": member_details,
+                "relationship_count": relationship_count
             })
 
         # 6. Generate LLM labels and summaries for each community
