@@ -43,12 +43,32 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   useEffect(() => {
-    graphController.zoomIn = () => fgRef.current?.zoom?.(fgRef.current.zoom() * 1.4, 300);
-    graphController.zoomOut = () => fgRef.current?.zoom?.(fgRef.current.zoom() / 1.4, 300);
+    graphController.zoomIn = () => {
+      if (dim === 3) {
+        const cam = fgRef.current?.camera?.();
+        if (cam && fgRef.current?.cameraPosition) {
+          const { x, y, z } = cam.position;
+          fgRef.current.cameraPosition({ x: x * 0.75, y: y * 0.75, z: z * 0.75 }, undefined, 300);
+        }
+      } else {
+        fgRef.current?.zoom?.(fgRef.current.zoom() * 1.4, 300);
+      }
+    };
+    graphController.zoomOut = () => {
+      if (dim === 3) {
+        const cam = fgRef.current?.camera?.();
+        if (cam && fgRef.current?.cameraPosition) {
+          const { x, y, z } = cam.position;
+          fgRef.current.cameraPosition({ x: x * 1.33, y: y * 1.33, z: z * 1.33 }, undefined, 300);
+        }
+      } else {
+        fgRef.current?.zoom?.(fgRef.current.zoom() / 1.4, 300);
+      }
+    };
     graphController.resetView = () => {
       fgRef.current?.zoomToFit?.(400, 40);
     };
-  }, []);
+  }, [dim]);
 
   const pathSet = useMemo(() => new Set(paths), [paths]);
   const highlightSet = useMemo(() => new Set(highlighted), [highlighted]);
@@ -100,14 +120,26 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
     );
     setSearchHit(match ? (match as any).id : null);
     if (match && fgRef.current) {
-      if (fgRef.current.centerAt) {
-        fgRef.current.centerAt((match as any).x, (match as any).y, 600);
-      }
-      if (fgRef.current.zoom) {
-        fgRef.current.zoom(2.5, 600);
+      if (dim === 3) {
+        const distance = 40;
+        const distRatio = 1 + distance / Math.hypot((match as any).x || 1, (match as any).y || 1, (match as any).z || 1);
+        if (fgRef.current.cameraPosition) {
+          fgRef.current.cameraPosition(
+            { x: ((match as any).x || 0) * distRatio, y: ((match as any).y || 0) * distRatio, z: ((match as any).z || 0) * distRatio },
+            match, // lookAt
+            600    // transitionMs
+          );
+        }
+      } else {
+        if (fgRef.current.centerAt) {
+          fgRef.current.centerAt((match as any).x, (match as any).y, 600);
+        }
+        if (fgRef.current.zoom) {
+          fgRef.current.zoom(2.5, 600);
+        }
       }
     }
-  }, [searchTerm, graphData.nodes]);
+  }, [searchTerm, graphData.nodes, dim]);
 
   return (
     <div className="graph-canvas relative h-full w-full" style={{ height }}>
@@ -163,8 +195,20 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
           const node = n as GraphNode;
           setHighlighted([node.id], []);
           if (fgRef.current) {
-            fgRef.current.centerAt((n as any).x, (n as any).y, 600);
-            fgRef.current.zoom(2.5, 600);
+            if (dim === 3) {
+              const distance = 40;
+              const distRatio = 1 + distance / Math.hypot(n.x || 1, n.y || 1, n.z || 1);
+              if (fgRef.current.cameraPosition) {
+                fgRef.current.cameraPosition(
+                  { x: (n.x || 0) * distRatio, y: (n.y || 0) * distRatio, z: (n.z || 0) * distRatio },
+                  n, // lookAt
+                  600 // transitionMs
+                );
+              }
+            } else {
+              fgRef.current.centerAt((n as any).x, (n as any).y, 600);
+              fgRef.current.zoom(2.5, 600);
+            }
           }
         }}
         onNodeHover={(n: any) => setHoverNode(n as FGNode)}

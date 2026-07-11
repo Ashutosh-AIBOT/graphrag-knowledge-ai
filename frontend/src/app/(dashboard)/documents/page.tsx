@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 import { useGraphData } from '@/hooks/useGraphData';
 
 export default function DocumentsPage() {
-  useDocumentPolling();
   useGraphData(); // Keep graph data updated
   
   const documents = useDocumentsStore((s) => s.documents);

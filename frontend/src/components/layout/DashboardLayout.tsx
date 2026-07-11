@@ -1,7 +1,10 @@
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { useDocumentPolling } from '@/hooks/useDocumentPolling';
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
+  useDocumentPolling(); // Poll documents globally to keep Query page select boxes in sync
+  
   return (
     <div className="flex h-screen overflow-hidden bg-bg-base">
       <Sidebar />
