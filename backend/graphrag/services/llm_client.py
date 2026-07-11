@@ -74,20 +74,7 @@ def get_llm(temperature: float = 0.0):
 
     available_models = []
 
-    # 1. OpenAI (Primary option)
-    if openai_api_key:
-        try:
-            model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-            logger.info("Initializing OpenAI Chat Model (%s) for fallback list", model_name)
-            available_models.append(ChatOpenAI(
-                model=model_name,
-                api_key=openai_api_key,
-                temperature=temperature
-            ))
-        except Exception as e:
-            logger.error("Failed to initialize OpenAI client: %s", str(e))
-
-    # 2. Groq (Secondary option)
+    # 1. Groq (Primary option)
     if groq_api_key:
         try:
             model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
@@ -100,20 +87,20 @@ def get_llm(temperature: float = 0.0):
         except Exception as e:
             logger.error("Failed to initialize Groq client: %s", str(e))
 
-    # 3. Google Gemini (Tertiary option)
-    if google_api_key:
+    # 2. OpenAI (Secondary option)
+    if openai_api_key:
         try:
-            model_name = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
-            logger.info("Initializing Google Gemini Chat Model (%s) for fallback list", model_name)
-            available_models.append(ChatGoogleGenerativeAI(
+            model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+            logger.info("Initializing OpenAI Chat Model (%s) for fallback list", model_name)
+            available_models.append(ChatOpenAI(
                 model=model_name,
-                api_key=google_api_key,
+                api_key=openai_api_key,
                 temperature=temperature
             ))
         except Exception as e:
-            logger.error("Failed to initialize Google Gemini client: %s", str(e))
+            logger.error("Failed to initialize OpenAI client: %s", str(e))
 
-    # 4. NVIDIA (OpenAI-compatible option)
+    # 3. NVIDIA (Tertiary option)
     if nvidia_api_key:
         try:
             model_name = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
@@ -126,6 +113,19 @@ def get_llm(temperature: float = 0.0):
             ))
         except Exception as e:
             logger.error("Failed to initialize NVIDIA client: %s", str(e))
+
+    # 4. Google Gemini (Quaternary option)
+    if google_api_key:
+        try:
+            model_name = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
+            logger.info("Initializing Google Gemini Chat Model (%s) for fallback list", model_name)
+            available_models.append(ChatGoogleGenerativeAI(
+                model=model_name,
+                api_key=google_api_key,
+                temperature=temperature
+            ))
+        except Exception as e:
+            logger.error("Failed to initialize Google Gemini client: %s", str(e))
 
     if not available_models:
         logger.error("No API keys found or all LLM provider initializations failed.")

@@ -121,14 +121,25 @@ class RAGChain:
             except Exception:
                 highlighted_entities = []
 
+            # Also extract retrieved entities from the graph context to highlight them on the graph!
+            if context:
+                for line in context.split("\n"):
+                    if line.startswith("* **"):
+                        try:
+                            ent_name = line.split("**")[1]
+                            if ent_name not in highlighted_entities:
+                                highlighted_entities.append(ent_name)
+                        except Exception:
+                            pass
+
         except Exception as e:
             logger.error("Failed to retrieve context in %s mode. Error: %s", mode, str(e), exc_info=True)
             return {
-                "answer": "An error occurred during context retrieval phase.",
+                "answer": f"**Context Retrieval Failed:**\n\nAn error occurred during the context retrieval phase. Details: {str(e)}",
                 "context": "",
                 "sources": [],
                 "strategy": mode.upper(),
-                "success": False,
+                "success": True,  # Return True to render this error details card in the UI
                 "confidence": 0.0,
                 "highlighted_entities": [],
                 "paths": [],
@@ -177,12 +188,28 @@ class RAGChain:
             }
         except Exception as e:
             logger.error("Failed to generate LLM response: %s", str(e), exc_info=True)
+            error_details = str(e)
+            
+            # Formulate user-friendly rate limit warning
+            if "quota" in error_details.lower() or "429" in error_details:
+                user_msg = (
+                    "### ⚠️ LLM Rate Limit / Quota Exceeded\n\n"
+                    "The primary LLM provider (Google Gemini API) returned a **429 RESOURCE_EXHAUSTED** error. "
+                    "This occurs because the free-tier quota is fully exhausted by document ingestion or concurrent requests.\n\n"
+                    "#### How to Fix This:\n"
+                    "1. Go to your **Hugging Face Space Settings** $\rightarrow$ **Variables and secrets**.\n"
+                    "2. Add a fallback API key: `GROQ_API_KEY` (Groq is free and has high limits) or `NVIDIA_API_KEY`.\n"
+                    "3. The backend will automatically fall back and handle this query using the backup provider."
+                )
+            else:
+                user_msg = f"### ❌ LLM Generation Failed\n\n{error_details}"
+
             return {
-                "answer": "Failed to generate answer due to an internal error.",
+                "answer": user_msg,
                 "context": context,
                 "sources": sources,
                 "strategy": strategy_used,
-                "success": False,
+                "success": True,  # Return True to render this error details card in the UI
                 "confidence": 0.0,
                 "highlighted_entities": highlighted_entities,
                 "paths": [],

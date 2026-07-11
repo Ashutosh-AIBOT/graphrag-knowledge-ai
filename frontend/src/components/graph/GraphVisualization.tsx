@@ -86,7 +86,7 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
   const isDimmed = (n: FGNode) => {
     if (highlightSet.size === 0 && pathSet.size === 0) return false;
     if (pathSet.size > 0) return !pathSet.has(n.id);
-    return !highlightSet.has(n.id);
+    return !highlightSet.has(n.name) && !highlightSet.has(n.id);
   };
 
   const [searchHit, setSearchHit] = useState<string | null>(null);
@@ -127,12 +127,12 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
             : entityColor(n.type)
         }
         nodeStrokeColor={(n: any) => {
-          if (highlightSet.has((n as any).id) || pathSet.has((n as any).id))
+          if (highlightSet.has((n as any).name) || highlightSet.has((n as any).id) || pathSet.has((n as any).id))
             return 'hsl(188 94% 52%)';
           return 'transparent';
         }}
         nodeStrokeWidth={(n: any) =>
-          highlightSet.has((n as any).id) || pathSet.has((n as any).id) ? 3 : 0
+          highlightSet.has((n as any).name) || highlightSet.has((n as any).id) || pathSet.has((n as any).id) ? 3 : 0
         }
         nodeOpacity={(n: any) => (isDimmed(n as FGNode) ? 0.18 : 1)}
         linkColor={(l: any) =>
