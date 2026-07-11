@@ -97,3 +97,5 @@ Agent/
 UX_SPECIFICATION.md
 Assignment_10_GraphRAG_Knowledge_Graph_AI.md
 BACKEND_TESTING_REPORT.md
+.vercel
+.env*
