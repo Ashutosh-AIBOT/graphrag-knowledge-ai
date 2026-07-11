@@ -509,6 +509,7 @@ class QueryCompareView(APIView):
                 elapsed = time.time() - start
                 return mode, {
                     "answer": result.get("answer", ""),
+                    "context": result.get("context", ""),
                     "sources": result.get("sources", []),
                     "strategy": result.get("strategy", mode.upper()),
                     "response_time": round(elapsed, 3),
@@ -694,27 +695,55 @@ class CommunityListView(APIView):
 
     def get(self, request):
         try:
-            detector = CommunityDetector()
-            communities = detector.get_all_communities(request.user.id)
-            doc_summary = detector.get_document_summary(request.user.id)
+            from django.core.cache import cache
+            user_id = str(request.user.id)
+            cache_key = f"communities_{user_id}"
 
-            # Simplify response — don't send full member_details in list
+            # Return cached communities immediately
+            cached = cache.get(cache_key, [])
+
+            if not cached:
+                # Cache is empty — trigger background detection and return loading state
+                def _detect_in_background():
+                    try:
+                        detector = CommunityDetector()
+                        detector.detect_communities(user_id)
+                    except Exception as bg_err:
+                        logger.error("Background community detection failed: %s", str(bg_err))
+
+                bg_thread = threading.Thread(target=_detect_in_background, daemon=True)
+                bg_thread.start()
+
+                return Response({
+                    "communities": [],
+                    "count": 0,
+                    "document_summary": "",
+                    "loading": True,
+                    "message": "Communities are being generated. Please refresh in 30 seconds."
+                }, status=status.HTTP_200_OK)
+
+            # Build response from cache
             summary_list = []
-            for comm in communities:
+            for comm in cached:
                 summary_list.append({
-                    "id": comm["id"],
-                    "label": comm.get("label", ""),
+                    "id": comm.get("id", 0),
+                    "label": comm.get("label", f"Community {comm.get('id', '?')}"),
                     "summary": comm.get("summary", ""),
-                    "member_count": comm["member_count"],
+                    "member_count": comm.get("member_count", 0),
                     "relationship_count": comm.get("relationship_count", 0),
-                    "members": comm["members"]
+                    "members": comm.get("members", []),
                 })
+
+            # Get document summary from cache (fast — no LLM call)
+            doc_summary = cache.get(f"doc_summary_{user_id}", "")
 
             return Response({
                 "communities": summary_list,
                 "count": len(summary_list),
-                "document_summary": doc_summary
+                "document_summary": doc_summary,
+                "loading": False
             }, status=status.HTTP_200_OK)
+
         except Exception as e:
             logger.error("Error in CommunityListView: %s", str(e), exc_info=True)
             return Response(

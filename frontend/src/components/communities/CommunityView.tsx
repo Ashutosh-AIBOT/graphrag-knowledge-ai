@@ -29,28 +29,50 @@ export function CommunityView() {
   const setHighlighted = useGraphStore((s) => s.setHighlighted);
 
   useEffect(() => {
-    setLoading(true);
-    api
-      .get('/graph/communities/')
-      .then(({ data }) => {
-        const c = data.communities || data.results || data;
-        if (Array.isArray(c) && c.length) {
-          setCommunities(
-            c.map((x: any) => ({
-              id: x.id,
-              label: x.label || `Community ${x.id}`,
-              entityCount: x.member_count ?? x.entity_count ?? x.entityCount ?? 0,
-              relationshipCount: x.relationship_count ?? x.relationshipCount ?? 0,
-              summary: x.summary || '',
-              keyEntities: x.members ?? x.key_entities ?? x.keyEntities ?? [],
-            }))
-          );
-          setDocSummary(data.document_summary || data.summary || '');
-        }
-        setFetchError(null);
-      })
-      .catch(() => setFetchError('Failed to load communities. Backend may be unavailable.'))
-      .finally(() => setLoading(false));
+    let pollTimer: ReturnType<typeof setTimeout>;
+
+    function fetchCommunities() {
+      setLoading(true);
+      api
+        .get('/graph/communities/')
+        .then(({ data }) => {
+          const isGenerating = data.loading === true;
+
+          if (isGenerating) {
+            // Backend is generating in background — poll again in 15s
+            setLoading(true);
+            pollTimer = setTimeout(fetchCommunities, 15000);
+            return;
+          }
+
+          const c = data.communities || data.results || data;
+          if (Array.isArray(c) && c.length) {
+            setCommunities(
+              c.map((x: any) => ({
+                id: x.id,
+                label: x.label || `Community ${x.id}`,
+                entityCount: x.member_count ?? x.entity_count ?? x.entityCount ?? 0,
+                relationshipCount: x.relationship_count ?? x.relationshipCount ?? 0,
+                summary: x.summary || '',
+                keyEntities: x.members ?? x.key_entities ?? x.keyEntities ?? [],
+              }))
+            );
+            setDocSummary(data.document_summary || data.summary || '');
+          }
+          setFetchError(null);
+          setLoading(false);
+        })
+        .catch(() => {
+          setFetchError('Failed to load communities. Backend may be unavailable.');
+          setLoading(false);
+        });
+    }
+
+    fetchCommunities();
+
+    return () => {
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, []);
 
   function expand(id: number) {
@@ -95,7 +117,11 @@ export function CommunityView() {
 
       <TabsContent value="cards" className="mt-0 flex-1 overflow-y-auto scrollbar-thin">
         {loading ? (
-          <div className="flex items-center justify-center py-12 text-sm text-text-muted">Loading communities...</div>
+          <div className="flex flex-col items-center justify-center gap-3 py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-violet border-t-transparent" />
+            <p className="text-sm text-text-muted">Generating communities from your knowledge graph…</p>
+            <p className="text-xs text-text-muted">This may take up to 30 seconds. Page will auto-refresh.</p>
+          </div>
         ) : communities.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-sm text-text-muted">No communities found. Upload documents to generate communities.</div>
         ) : (

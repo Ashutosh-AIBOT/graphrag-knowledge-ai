@@ -88,14 +88,31 @@ class CommunityDetector:
                 "relationship_count": relationship_count
             })
 
-        # 6. Generate LLM labels and summaries for each community
-        for comm in community_list:
-            label_summary = self._generate_community_label_summary(comm)
-            comm["label"] = label_summary.get("label", f"Community {comm['id']}")
-            comm["summary"] = label_summary.get("summary", "")
+        # 6. Cache the raw structure immediately (so fast requests get data right away)
+        cache.set(f"communities_{user_id}", community_list, COMMUNITY_CACHE_TTL)
 
+        # 7. Generate LLM labels and summaries for each community (may be slow)
+        for comm in community_list:
+            try:
+                label_summary = self._generate_community_label_summary(comm)
+                comm["label"] = label_summary.get("label", f"Community {comm['id']}")
+                comm["summary"] = label_summary.get("summary", "")
+            except Exception as e:
+                logger.warning("LLM label generation failed for community %s: %s", comm['id'], str(e))
+                comm["label"] = f"Community {comm['id']}"
+                comm["summary"] = ""
+
+        # 8. Cache final labeled result
         logger.info("Detected %d communities for user: %s", len(community_list), user_id)
         cache.set(f"communities_{user_id}", community_list, COMMUNITY_CACHE_TTL)
+
+        # 9. Generate and cache document summary
+        try:
+            doc_summary = self._build_doc_summary_from_communities(community_list)
+            cache.set(f"doc_summary_{user_id}", doc_summary, COMMUNITY_CACHE_TTL)
+        except Exception:
+            pass
+
         return community_list
 
     def _label_propagation(self, nodes: set, adjacency: dict, max_iterations: int = 20) -> Dict[int, set]:
@@ -214,15 +231,15 @@ class CommunityDetector:
         return None
 
     def get_all_communities(self, user_id: str) -> List[Dict]:
-        """Returns all communities, using cache if available."""
-        cached = cache.get(f"communities_{user_id}", [])
-        if not cached:
-            cached = self.detect_communities(user_id)
-        return cached
+        """Returns all communities from cache only. Caller must trigger detect_communities() separately."""
+        return cache.get(f"communities_{user_id}", [])
 
     def get_document_summary(self, user_id: str) -> str:
+        """Returns cached document summary (never blocks on LLM)."""
+        return cache.get(f"doc_summary_{user_id}", "")
+
+    def _build_doc_summary_from_communities(self, communities: List[Dict]) -> str:
         """Generate a document-level summary by combining all community summaries."""
-        communities = self.get_all_communities(user_id)
         if not communities:
             return ""
 
@@ -235,7 +252,7 @@ class CommunityDetector:
                 community_texts.append(f"**{label}** ({member_count} entities): {summary}")
 
         if not community_texts:
-            return ""
+            return f"Document contains {len(communities)} topic clusters."
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", (

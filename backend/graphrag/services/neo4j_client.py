@@ -270,12 +270,13 @@ class Neo4jClient:
                 "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page "
                 "LIMIT 500"
             )
+            # Filter edges by checking that BOTH endpoint nodes belong to the filtered docs
             edges_query = (
                 "MATCH (s:Entity {user_id: $user_id})-[r]->(t:Entity {user_id: $user_id}) "
-                "WHERE r.source_doc_id IN $doc_ids "
+                "WHERE s.source_doc_id IN $doc_ids AND t.source_doc_id IN $doc_ids "
                 "RETURN s.name AS source, t.name AS target, "
                 "       type(r) AS relationship_type, r.description AS description, "
-                "       r.confidence AS confidence, r.source_doc AS source_doc, r.source_doc_id AS source_doc_id "
+                "       r.confidence AS confidence, r.source_doc AS source_doc "
                 "LIMIT 1000"
             )
             params = {"user_id": str(user_id), "doc_ids": [str(d) for d in doc_ids]}
@@ -286,11 +287,12 @@ class Neo4jClient:
                 "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page "
                 "LIMIT 500"
             )
+            # No doc filter — return ALL edges between user's nodes
             edges_query = (
                 "MATCH (s:Entity {user_id: $user_id})-[r]->(t:Entity {user_id: $user_id}) "
                 "RETURN s.name AS source, t.name AS target, "
                 "       type(r) AS relationship_type, r.description AS description, "
-                "       r.confidence AS confidence, r.source_doc AS source_doc, r.source_doc_id AS source_doc_id "
+                "       r.confidence AS confidence, r.source_doc AS source_doc "
                 "LIMIT 1000"
             )
             params = {"user_id": str(user_id)}
@@ -298,6 +300,7 @@ class Neo4jClient:
         try:
             nodes = self.execute_query(nodes_query, params)
             edges = self.execute_query(edges_query, params)
+            logger.info("Graph data fetched: %d nodes, %d edges for user %s", len(nodes), len(edges), user_id)
             return {"nodes": nodes, "edges": edges}
         except Exception as e:
             logger.error("Failed to get all graph data: %s", str(e))
