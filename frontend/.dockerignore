@@ -1,0 +1,15 @@
+.git
+.gitignore
+.next/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+*.md
+.vscode/
+.idea/
+playwright.config.ts
+e2e/
+QA/
