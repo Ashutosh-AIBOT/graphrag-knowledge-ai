@@ -23,6 +23,7 @@ interface QueryResult {
   entities?: string[];
   paths?: string[];
   hops?: Hop[];
+  context?: string;
 }
 
 export function MainQueryView() {
@@ -68,6 +69,7 @@ export function MainQueryView() {
         entities: res.highlighted_entities,
         paths: res.paths,
         hops: res.hops,
+        context: res.context,
       };
       setResult(mapped);
       setHighlighted(mapped.entities || [], mapped.paths || []);
@@ -142,6 +144,7 @@ export function MainQueryView() {
             method={result.method || mode}
             entityCount={result.entities?.length || 0}
             chunkCount={result.citations?.length || 0}
+            context={result.context}
           />
         )}
       </div>

@@ -32,6 +32,7 @@ interface GraphState {
   visibleTypes: Record<string, boolean>;
   visibleRelationships: Record<string, boolean>;
   selectedEntity: GraphNode | null;
+  dim: 2 | 3;
   setData: (data: GraphData) => void;
   setHighlighted: (entities: string[], paths?: string[]) => void;
   clearHighlighted: () => void;
@@ -39,6 +40,7 @@ interface GraphState {
   toggleType: (type: string) => void;
   toggleRelationship: (rel: string) => void;
   selectEntity: (entity: GraphNode | null) => void;
+  setDim: (dim: 2 | 3) => void;
 }
 
 export const useGraphStore = create<GraphState>((set) => ({
@@ -49,6 +51,7 @@ export const useGraphStore = create<GraphState>((set) => ({
   visibleTypes: {},
   visibleRelationships: {},
   selectedEntity: null,
+  dim: 2,
   setData: (data) => set({ data }),
   setHighlighted: (entities, paths = []) =>
     set({ highlightedEntities: entities, highlightedPaths: paths }),
@@ -66,4 +69,5 @@ export const useGraphStore = create<GraphState>((set) => ({
       },
     })),
   selectEntity: (entity) => set({ selectedEntity: entity }),
+  setDim: (dim) => set({ dim }),
 }));

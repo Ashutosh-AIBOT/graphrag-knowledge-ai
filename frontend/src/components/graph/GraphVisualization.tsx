@@ -34,6 +34,7 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
   const visibleRelationships = useGraphStore((s) => s.visibleRelationships);
   const selectEntity = useGraphStore((s) => s.selectEntity);
   const setHighlighted = useGraphStore((s) => s.setHighlighted);
+  const dim = useGraphStore((s) => s.dim);
 
   const fgRef = useRef<any>(null);
   const [hoverNode, setHoverNode] = useState<FGNode | null>(null);
@@ -42,10 +43,10 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   useEffect(() => {
-    graphController.zoomIn = () => fgRef.current?.zoom(fgRef.current.zoom() * 1.4, 300);
-    graphController.zoomOut = () => fgRef.current?.zoom(fgRef.current.zoom() / 1.4, 300);
+    graphController.zoomIn = () => fgRef.current?.zoom?.(fgRef.current.zoom() * 1.4, 300);
+    graphController.zoomOut = () => fgRef.current?.zoom?.(fgRef.current.zoom() / 1.4, 300);
     graphController.resetView = () => {
-      fgRef.current?.zoomToFit(400, 40);
+      fgRef.current?.zoomToFit?.(400, 40);
     };
   }, []);
 
@@ -99,8 +100,12 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
     );
     setSearchHit(match ? (match as any).id : null);
     if (match && fgRef.current) {
-      fgRef.current.centerAt((match as any).x, (match as any).y, 600);
-      fgRef.current.zoom(2.5, 600);
+      if (fgRef.current.centerAt) {
+        fgRef.current.centerAt((match as any).x, (match as any).y, 600);
+      }
+      if (fgRef.current.zoom) {
+        fgRef.current.zoom(2.5, 600);
+      }
     }
   }, [searchTerm, graphData.nodes]);
 
@@ -108,6 +113,7 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
     <div className="graph-canvas relative h-full w-full" style={{ height }}>
       <ForceGraph2D
         ref={fgRef}
+        dim={dim}
         graphData={graphData}
         width={undefined}
         backgroundColor="transparent"
