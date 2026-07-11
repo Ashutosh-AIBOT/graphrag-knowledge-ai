@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
+    wget \
+    procps \
+    default-jre \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
@@ -22,7 +25,25 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . /app/
 
 # Create volume directories so they exist with the correct permissions in the image
-RUN mkdir -p /app/chroma_db /app/uploaded_documents /app/logs /app/db
+RUN mkdir -p /app/chroma_db /app/uploaded_documents /app/logs /app/db /app/db/neo4j_data
+
+# Download and setup Neo4j Community Edition
+RUN wget -q -O neo4j.tar.gz "https://neo4j.com/artifact.php?name=neo4j-community-5.23.0-unix.tar.gz" \
+    && tar -xf neo4j.tar.gz \
+    && mv neo4j-community-5.23.0 /app/neo4j \
+    && rm neo4j.tar.gz
+
+# Configure Neo4j to run within resource limits and set directories
+RUN echo "server.directories.data=/app/db/neo4j_data" >> /app/neo4j/conf/neo4j.conf \
+    && echo "server.memory.heap.initial_size=512m" >> /app/neo4j/conf/neo4j.conf \
+    && echo "server.memory.heap.max_size=1G" >> /app/neo4j/conf/neo4j.conf \
+    && echo "server.memory.pagecache.size=1G" >> /app/neo4j/conf/neo4j.conf
+
+# Set default password (matches backend settings)
+RUN /app/neo4j/bin/neo4j-admin dbms set-initial-password "password"
+
+# Ensure start script is executable
+RUN chmod +x /app/start.sh
 
 # Collect static files (no-op if no static files, but ready for future)
 RUN python manage.py collectstatic --noinput 2>/dev/null || true
@@ -40,5 +61,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/api/health/ || exit 1
 
-# Production command using gunicorn with auto-migrations
-CMD ["sh", "-c", "python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2 --timeout 300 --access-logfile - --error-logfile -"]
+# Production command using custom startup script to run both Neo4j and Gunicorn
+CMD ["/app/start.sh"]
