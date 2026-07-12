@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Terminal,
+  GitBranch,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/auth';
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/', label: 'Query', icon: LayoutDashboard, exact: true },
   { href: '/documents', label: 'Documents', icon: FileText },
   { href: '/explore', label: 'Explore', icon: Network },
+  { href: '/multihop', label: 'Multi-Hop', icon: GitBranch },
   { href: '/compare', label: 'Compare', icon: Scale },
   { href: '/communities', label: 'Community', icon: Globe },
   { href: '/cypher', label: 'Cypher Editor', icon: Terminal },

@@ -992,3 +992,97 @@ class ShortestPathView(APIView):
                 {"error": "An internal error occurred while finding the path."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# ============================================================
+# Endpoint: POST /api/query/multihop/
+# ============================================================
+
+class MultiHopQueryView(APIView):
+    """
+    Dedicated endpoint for multi-hop reasoning queries.
+    Accepts a natural language query or explicit entity pair.
+    Returns path, alternative paths, and explanation.
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [LLMLoadThrottle]
+
+    def post(self, request):
+        query = request.data.get("query", "").strip()
+        entity_a = request.data.get("entity_a", "").strip()
+        entity_b = request.data.get("entity_b", "").strip()
+
+        if not query and not (entity_a and entity_b):
+            return Response(
+                {"error": "Provide a 'query' or both 'entity_a' and 'entity_b'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        logger.info("Multi-hop query from user %s: '%s' (entities: %s -> %s)",
+                     request.user.username, query, entity_a, entity_b)
+
+        try:
+            reasoner = MultiHopReasoner()
+
+            # If explicit entities provided, skip extraction
+            if entity_a and entity_b:
+                path_result = reasoner.explain_connection(entity_a, entity_b, request.user.id)
+            else:
+                # Detect multi-hop and extract entities from query
+                if not reasoner.is_multihop_query(query):
+                    # Still try — the user may have asked a path question without pattern match
+                    pass
+
+                entity_pair = reasoner.extract_entities_from_query(query)
+                if not entity_pair:
+                    return Response({
+                        "found": False,
+                        "explanation": "Could not identify two entities to connect from your query. Try specifying entity names directly.",
+                        "path": [],
+                        "alternative_paths": [],
+                        "hop_count": 0,
+                        "entity_a": "",
+                        "entity_b": ""
+                    }, status=status.HTTP_200_OK)
+
+                entity_a = entity_pair["entity_a"]
+                entity_b = entity_pair["entity_b"]
+                path_result = reasoner.explain_connection(entity_a, entity_b, request.user.id)
+
+            # Build hops format for frontend PathView
+            hops = []
+            for step in path_result.get("path", []):
+                hops.append({
+                    "from": step["source"],
+                    "rel": step["type"],
+                    "to": step["target"],
+                    "doc": step.get("source_doc", "")
+                })
+
+            # Collect all entity names for graph highlighting
+            highlighted_entities = []
+            for step in path_result.get("path", []):
+                if step["source"] not in highlighted_entities:
+                    highlighted_entities.append(step["source"])
+                if step["target"] not in highlighted_entities:
+                    highlighted_entities.append(step["target"])
+
+            return Response({
+                "found": path_result.get("found", False),
+                "explanation": path_result.get("explanation", ""),
+                "path": path_result.get("path", []),
+                "hops": hops,
+                "alternative_paths": path_result.get("alternative_paths", []),
+                "hop_count": path_result.get("hop_count", 0),
+                "entity_a": entity_a,
+                "entity_b": entity_b,
+                "highlighted_entities": highlighted_entities,
+                "success": True
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error("Error in MultiHopQueryView: %s", str(e), exc_info=True)
+            return Response(
+                {"error": "An internal error occurred during multi-hop reasoning."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

@@ -6,6 +6,7 @@ from .llm_client import get_llm
 from .graph_retriever import GraphRetriever
 from .vector_retriever import VectorRetriever
 from .hybrid_retriever import HybridRetriever
+from .multihop_reasoner import MultiHopReasoner
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class RAGChain:
         self.graph_retriever = _graph_retriever
         self.vector_retriever = _vector_retriever
         self.hybrid_retriever = _hybrid_retriever
+        self.multihop_reasoner = MultiHopReasoner()
 
         # Define prompts for each mode
         self.system_prompts = {
@@ -175,6 +177,37 @@ class RAGChain:
             # Calculate confidence based on answer quality and sources
             confidence = self._calculate_confidence(answer, sources)
 
+            # Detect multi-hop queries and populate hops
+            hops = []
+            conclusion = ""
+            if self.multihop_reasoner.is_multihop_query(query):
+                try:
+                    entity_pair = self.multihop_reasoner.extract_entities_from_query(query)
+                    if entity_pair:
+                        path_result = self.multihop_reasoner.explain_connection(
+                            entity_pair["entity_a"],
+                            entity_pair["entity_b"],
+                            user_id
+                        )
+                        if path_result.get("found"):
+                            # Map path steps to hops format
+                            for step in path_result["path"]:
+                                hops.append({
+                                    "from": step["source"],
+                                    "rel": step["type"],
+                                    "to": step["target"],
+                                    "doc": step.get("source_doc", "")
+                                })
+                            conclusion = path_result.get("explanation", "")
+                            # Add path entities to highlighted entities
+                            for step in path_result["path"]:
+                                if step["source"] not in highlighted_entities:
+                                    highlighted_entities.append(step["source"])
+                                if step["target"] not in highlighted_entities:
+                                    highlighted_entities.append(step["target"])
+                except Exception as hop_err:
+                    logger.warning("Multi-hop detection failed for query '%s': %s", query, str(hop_err))
+
             return {
                 "answer": answer,
                 "context": context,
@@ -184,7 +217,8 @@ class RAGChain:
                 "confidence": confidence,
                 "highlighted_entities": highlighted_entities,
                 "paths": [],
-                "hops": []
+                "hops": hops,
+                "conclusion": conclusion
             }
         except Exception as e:
             logger.error("Failed to generate LLM response: %s", str(e), exc_info=True)

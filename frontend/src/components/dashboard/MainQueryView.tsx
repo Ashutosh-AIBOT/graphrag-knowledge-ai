@@ -25,6 +25,7 @@ interface QueryResult {
   paths?: string[];
   hops?: Hop[];
   context?: string;
+  conclusion?: string;
 }
 
 // Persist last query session in localStorage
@@ -114,6 +115,7 @@ export function MainQueryView() {
         paths: res.paths,
         hops: res.hops,
         context: res.context,
+        conclusion: res.conclusion,
       };
       setResult(mapped);
       setHighlighted(mapped.entities || [], mapped.paths || []);
@@ -208,7 +210,7 @@ export function MainQueryView() {
           {result?.hops && result.hops.length > 0 && (
             <PathView
               hops={result.hops}
-              conclusion="The query resolves through the management chain above, connecting the person to the team that built the Payment Service."
+              conclusion={result.conclusion}
             />
           )}
 
