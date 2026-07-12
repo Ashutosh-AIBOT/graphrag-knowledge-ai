@@ -160,15 +160,15 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
         }
         nodeStrokeColor={(n: any) => {
           if (highlightSet.has((n as any).name) || highlightSet.has((n as any).id) || pathSet.has((n as any).id))
-            return 'hsl(188 94% 52%)';
-          return 'transparent';
+            return 'hsl(188, 94%, 52%)';
+           return 'transparent';
         }}
         nodeStrokeWidth={(n: any) =>
           highlightSet.has((n as any).name) || highlightSet.has((n as any).id) || pathSet.has((n as any).id) ? 3 : 0
         }
         nodeOpacity={(n: any) => (isDimmed(n as FGNode) ? 0.18 : 1)}
         linkColor={(l: any) =>
-          isPathEdge(l as FGLink) ? 'hsl(188 94% 52%)' : 'hsl(215 20% 40%)'
+          isPathEdge(l as FGLink) ? 'hsl(188, 94%, 52%)' : 'hsl(215, 20%, 40%)'
         }
         linkWidth={(l: any) => {
           if (isPathEdge(l as FGLink)) return 3;
@@ -199,7 +199,7 @@ export function GraphVisualization({ height = '100%' }: { height?: string | numb
           return 0.4;
         }}
         linkDirectionalParticles={(l: any) => (isPathEdge(l as FGLink) ? 3 : 0)}
-        linkDirectionalParticleColor={() => 'hsl(188 94% 60%)'}
+        linkDirectionalParticleColor={() => 'hsl(188, 94%, 60%)'}
         linkDirectionalParticleSpeed={0.01}
         linkDirectionalArrowLength={3}
         linkDirectionalArrowRelPos={1}
