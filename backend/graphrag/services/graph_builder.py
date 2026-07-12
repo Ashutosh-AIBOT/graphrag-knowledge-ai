@@ -150,12 +150,15 @@ class GraphBuilder:
 
             def process_section(sec: dict) -> tuple[List[dict], List[dict]]:
                 """Process a single section: extract entities and relationships."""
+                import time
                 text = sec["text"]
                 page = sec["page"]
+                time.sleep(2)
                 ents = self.entity_extractor.extract_entities(text)
                 for e in ents:
                     e["page"] = page
                     e["source_doc"] = doc.name
+                time.sleep(2)
                 rels = self.relationship_extractor.extract_relationships(text)
                 for r in rels:
                     r["page"] = page
@@ -166,7 +169,7 @@ class GraphBuilder:
             completed = 0
             failed_count = 0
             last_error = None
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ThreadPoolExecutor(max_workers=1) as executor:
                 futures = {executor.submit(process_section, sec): sec for sec in sections}
                 for future in as_completed(futures):
                     try:
@@ -176,9 +179,9 @@ class GraphBuilder:
                         with all_relationships_lock:
                             all_relationships.extend(rels)
                     except Exception as e:
-                        logger.error("Section processing failed: %s", str(e))
-                        failed_count += 1
-                        last_error = e
+                         logger.error("Section processing failed: %s", str(e))
+                         failed_count += 1
+                         last_error = e
                     completed += 1
                     extraction_progress = 20 + int(55 * (completed / total_sections)) if total_sections > 0 else 20
                     self._update_progress(doc, f"Extracting entities... ({completed}/{total_sections})", extraction_progress)
@@ -277,18 +280,21 @@ class GraphBuilder:
             import docx
             doc = docx.Document(filepath)
             current_chunk = []
+            current_len = 0
             section_idx = 1
             for p in doc.paragraphs:
-                if p.text and p.text.strip():
-                    current_chunk.append(p.text.strip())
-                # Group every 3 paragraphs to ensure sufficient context is captured
-                if len(current_chunk) >= 3:
-                    sections.append({
-                        "text": "\n".join(current_chunk),
-                        "page": section_idx
-                    })
-                    current_chunk = []
-                    section_idx += 1
+                txt = p.text.strip() if p.text else ""
+                if txt:
+                    current_chunk.append(txt)
+                    current_len += len(txt)
+                    if current_len >= 1500:
+                        sections.append({
+                            "text": "\n".join(current_chunk),
+                            "page": section_idx
+                        })
+                        current_chunk = []
+                        current_len = 0
+                        section_idx += 1
             if current_chunk:
                 sections.append({
                     "text": "\n".join(current_chunk),
@@ -300,10 +306,24 @@ class GraphBuilder:
                 content = f.read()
             # Split by double newlines
             paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-            for idx, p in enumerate(paragraphs):
+            current_chunk = []
+            current_len = 0
+            section_idx = 1
+            for p in paragraphs:
+                current_chunk.append(p)
+                current_len += len(p)
+                if current_len >= 1500:
+                    sections.append({
+                        "text": "\n\n".join(current_chunk),
+                        "page": section_idx
+                    })
+                    current_chunk = []
+                    current_len = 0
+                    section_idx += 1
+            if current_chunk:
                 sections.append({
-                    "text": p,
-                    "page": idx + 1
+                    "text": "\n\n".join(current_chunk),
+                    "page": section_idx
                 })
 
         return sections

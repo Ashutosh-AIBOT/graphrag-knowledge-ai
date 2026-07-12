@@ -6,6 +6,7 @@ export interface HistoryItem {
   query_text: string;
   retrieval_mode: string;
   answer_text: string;
+  answer_preview?: string;
   response_time: number;
   created_at: string;
 }

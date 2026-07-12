@@ -80,6 +80,23 @@ class MultiHopReasoner:
             logger.error("Failed to extract entities from multi-hop query: %s", str(e))
             return None
 
+    def _get_nodes_and_rels(self, path_obj):
+        if isinstance(path_obj, list):
+            nodes = [path_obj[i] for i in range(0, len(path_obj), 2)]
+            relationships = [path_obj[i] for i in range(1, len(path_obj), 2)]
+            return nodes, relationships
+        else:
+            return list(path_obj.nodes), list(path_obj.relationships)
+
+    def _get_rel_type(self, rel):
+        if isinstance(rel, str):
+            return rel
+        if isinstance(rel, dict):
+            return rel.get("type", "RELATED_TO")
+        if hasattr(rel, "type"):
+            return rel.type
+        return "RELATED_TO"
+
     def find_alternative_paths(self, entity_a: str, entity_b: str, user_id: str, max_paths: int = 3) -> List[List[Dict]]:
         """Find multiple alternative paths between two entities."""
         cypher = (
@@ -102,13 +119,12 @@ class MultiHopReasoner:
                 path_obj = record.get("p")
                 if not path_obj:
                     continue
-                nodes = path_obj.nodes
-                relationships = path_obj.relationships
+                nodes, relationships = self._get_nodes_and_rels(path_obj)
                 path_steps = []
                 for i in range(len(relationships)):
                     now_name = dict(nodes[i]).get("name", "Unknown")
                     next_name = dict(nodes[i + 1]).get("name", "Unknown")
-                    rel_type = relationships[i].type
+                    rel_type = self._get_rel_type(relationships[i])
                     path_steps.append({
                         "source": now_name,
                         "target": next_name,
@@ -141,7 +157,6 @@ class MultiHopReasoner:
         }
 
         try:
-            # New code
             records = self.neo4j_client.execute_query(cypher, params)
             if not records or not records[0].get("p"):
                 logger.info("No connection path found between '%s' and '%s'.", entity_a, entity_b)
@@ -152,8 +167,7 @@ class MultiHopReasoner:
                 }
 
             path_obj = records[0]["p"]
-            nodes = path_obj.nodes
-            relationships = path_obj.relationships
+            nodes, relationships = self._get_nodes_and_rels(path_obj)
 
             # 2. Extract path details for prompt serialization
             path_steps = []
@@ -170,7 +184,18 @@ class MultiHopReasoner:
                 now_type = dict(node_now).get("type", "Entity")
                 next_type = dict(node_next).get("type", "Entity")
                 
-                rel_type = rel.type
+                rel_type = self._get_rel_type(rel)
+
+                # Extract source_doc from relationship props if available
+                if isinstance(rel, dict):
+                    source_doc = rel.get("source_doc", "")
+                elif hasattr(rel, "get"):
+                    source_doc = rel.get("source_doc", "")
+                else:
+                    try:
+                        source_doc = dict(rel).get("source_doc", "")
+                    except Exception:
+                        source_doc = ""
 
                 step_str = f"({now_name} [{now_type}]) --[{rel_type}]--> ({next_name} [{next_type}])"
                 path_steps.append(step_str)
@@ -181,7 +206,8 @@ class MultiHopReasoner:
                     "source_type": now_type,
                     "target": next_name,
                     "target_type": next_type,
-                    "type": rel_type
+                    "type": rel_type,
+                    "source_doc": source_doc,
                 })
 
             path_details = "\n".join(path_steps)

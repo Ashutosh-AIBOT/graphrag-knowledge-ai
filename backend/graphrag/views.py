@@ -528,6 +528,7 @@ class QueryCompareView(APIView):
             return Response({
                 "query": query,
                 "comparisons": results,
+                "verdict": self._generate_verdict(results),
                 "success": True
             }, status=status.HTTP_200_OK)
 
@@ -537,6 +538,33 @@ class QueryCompareView(APIView):
                 {"error": "An internal error occurred during comparison."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def _generate_verdict(self, comparisons: dict) -> str:
+        """Generate a verdict comparing the three retrieval modes."""
+        times = {}
+        has_answer = {}
+        confidences = {}
+        for mode in ["graph", "vector", "hybrid"]:
+            data = comparisons.get(mode, {})
+            times[mode] = data.get("response_time", 999)
+            has_answer[mode] = bool(data.get("answer") and len(data.get("answer", "")) > 10)
+            confidences[mode] = data.get("confidence", 0)
+
+        fastest = min(times, key=times.get)
+        answered = [m for m, v in has_answer.items() if v]
+
+        if not answered:
+            return "No retrieval mode produced a valid answer."
+
+        best = max(answered, key=lambda m: confidences.get(m, 0))
+
+        parts = [f"**{best.title()}** produced the best result (confidence: {round(confidences.get(best, 0) * 100)}%)."]
+        if fastest != best:
+            parts.append(f"**{fastest.title()}** was fastest ({round(times[fastest] * 1000)}ms).")
+        else:
+            parts.append(f"It was also the fastest ({round(times[fastest] * 1000)}ms).")
+
+        return " ".join(parts)
 
 
 # ============================================================

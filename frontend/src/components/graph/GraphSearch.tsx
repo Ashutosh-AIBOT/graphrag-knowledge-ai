@@ -10,7 +10,7 @@ export function GraphSearch() {
   const [value, setValue] = useState('');
 
   return (
-    <div className="absolute left-1/2 top-3 w-64 -translate-x-1/2">
+    <div className="absolute left-1/2 top-3 z-20 w-64 -translate-x-1/2">
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
         <Input

@@ -51,7 +51,7 @@ export const useGraphStore = create<GraphState>((set) => ({
   visibleTypes: {},
   visibleRelationships: {},
   selectedEntity: null,
-  dim: 3,
+  dim: 2,
   setData: (data) => set({ data }),
   setHighlighted: (entities, paths = []) =>
     set({ highlightedEntities: entities, highlightedPaths: paths }),

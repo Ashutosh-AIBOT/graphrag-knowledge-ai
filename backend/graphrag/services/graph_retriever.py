@@ -143,33 +143,28 @@ class GraphRetriever:
         """
         raw_data = self.neo4j_client.get_all_graph_data(user_id, doc_ids=doc_ids)
 
-        # Assign numeric IDs for vis.js / react-force-graph
-        node_id_map = {}
         nodes = []
-        for i, node in enumerate(raw_data["nodes"]):
-            node_id_map[node["name"]] = i
+        for node in raw_data["nodes"]:
             nodes.append({
-                "id": i,
+                "id": node["name"],
                 "name": node["name"],
                 "type": node.get("type", "Unknown"),
                 "description": node.get("description", ""),
                 "source_doc": node.get("source_doc", ""),
-                "page": node.get("page", 0)
+                "page": node.get("page", 0),
+                "val": node.get("connections", 1)
             })
 
         edges = []
         for edge in raw_data["edges"]:
-            source_id = node_id_map.get(edge["source"])
-            target_id = node_id_map.get(edge["target"])
-            if source_id is not None and target_id is not None:
-                edges.append({
-                    "source": source_id,
-                    "target": target_id,
-                    "type": edge["relationship_type"],
-                    "description": edge.get("description", ""),
-                    "confidence": edge.get("confidence", 1.0),
-                    "source_doc": edge.get("source_doc", "")
-                })
+            edges.append({
+                "source": edge["source"],
+                "target": edge["target"],
+                "type": edge["relationship_type"],
+                "description": edge.get("description", ""),
+                "confidence": edge.get("confidence", 1.0),
+                "source_doc": edge.get("source_doc", "")
+            })
 
         return {"nodes": nodes, "edges": edges}
 

@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import api from '@/lib/axios';
 import { useDocumentsStore, DocumentItem, DocStatus } from '@/store/documents';
 import { POLLING_INTERVAL_MS } from '@/lib/constants';
-import { mockDocuments } from '@/lib/mockData';
 
 export function useDocumentPolling(enabled = true) {
   const setDocuments = useDocumentsStore((s) => s.setDocuments);

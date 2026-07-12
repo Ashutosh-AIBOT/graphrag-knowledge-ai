@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '@/lib/axios';
 import { useGraphStore, GraphData } from '@/store/graph';
-import { mockGraph } from '@/lib/mockData';
 import { useDocumentsStore } from '@/store/documents';
 
 function mapResponse(data: any): GraphData {
@@ -36,9 +35,9 @@ export function useGraphData() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    
+
     const url = selectedIdsStr ? `/graph/?document_ids=${selectedIdsStr}` : '/graph/';
-    
+
     api.get(url)
       .then(({ data }) => {
         if (!cancelled) {
@@ -48,8 +47,8 @@ export function useGraphData() {
       })
       .catch(() => {
         if (!cancelled) {
-          setError('Using demo graph data (backend unavailable).');
-          setData(mockGraph);
+          setError('Backend unavailable. Please check your connection.');
+          setData({ nodes: [], links: [] });
         }
       })
       .finally(() => {

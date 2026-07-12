@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { QueryPanel } from '@/components/query/QueryPanel';
 import { QueryMode } from '@/components/query/QueryPanel';
 import { Button } from '@/components/ui/button';
+import ReactMarkdown from 'react-markdown';
 import api from '@/lib/axios';
 
 interface ColResult {
@@ -191,7 +192,9 @@ export function ComparisonView() {
                 <Card key={c.key}>
                   <CardContent className="space-y-3 p-4">
                     <h3 className={`text-sm font-semibold ${c.accent}`}>{c.label}</h3>
-                    <p className="text-sm leading-relaxed text-text-secondary">{r.answer}</p>
+                    <div className="text-sm leading-relaxed text-text-secondary">
+                      <ReactMarkdown>{r.answer}</ReactMarkdown>
+                    </div>
                     <p className="text-xs text-text-muted">Context: {r.context}</p>
                     <ConfidenceBar value={r.confidence} bar={c.bar} />
                     <p className="text-xs text-text-muted">⏱️ {r.timeMs}ms</p>

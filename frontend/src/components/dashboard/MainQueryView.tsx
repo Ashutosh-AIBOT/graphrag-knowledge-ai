@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGraphData } from '@/hooks/useGraphData';
 import { useGraphStore } from '@/store/graph';
 import { QueryPanel, QueryMode } from '@/components/query/QueryPanel';
@@ -28,7 +28,6 @@ interface QueryResult {
   conclusion?: string;
 }
 
-// Persist last query session in localStorage
 const LAST_SESSION_KEY = 'graphrag-last-session';
 
 function loadLastSession(): { query: string; mode: QueryMode; result: QueryResult | null } | null {
@@ -60,11 +59,13 @@ export function MainQueryView() {
   const selectedIds = useDocumentsStore((s) => s.selectedDocumentIds);
   const addHistoryItem = useHistoryStore((s) => s.addItem);
 
-  // Restore last session state from localStorage
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<QueryMode>('hybrid');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const answerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const session = loadLastSession();
@@ -78,14 +79,12 @@ export function MainQueryView() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Persist session whenever result changes
   useEffect(() => {
     if (query || result) {
       saveLastSession(query, mode, result);
     }
   }, [query, mode, result]);
 
-  // Listen for right-click "Ask about entity" events from graph
   useEffect(() => {
     function handleAskEntity(e: Event) {
       const name = (e as CustomEvent).detail;
@@ -93,6 +92,14 @@ export function MainQueryView() {
     }
     window.addEventListener('graphrag:ask-entity', handleAskEntity);
     return () => window.removeEventListener('graphrag:ask-entity', handleAskEntity);
+  }, []);
+
+  const scrollToAnswer = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (answerRef.current) {
+        answerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
   }, []);
 
   const runQuery = useCallback(async (overrideQuery?: string) => {
@@ -120,30 +127,31 @@ export function MainQueryView() {
       setResult(mapped);
       setHighlighted(mapped.entities || [], mapped.paths || []);
 
-      // Add to local history store immediately
       addHistoryItem({
         id: Date.now().toString(),
         query_text: q,
         retrieval_mode: (res.strategy || mode).toUpperCase(),
         answer_text: res.answer || '',
+        answer_preview: (res.answer || '').substring(0, 200),
         response_time: res.response_time ?? 0,
         created_at: new Date().toISOString(),
       });
+
+      scrollToAnswer();
     } catch (err: any) {
       const backendError = err.response?.data?.error;
       let errorMsg = backendError || 'Failed to process query. Please check your API keys and Neo4j connection.';
 
-      // Friendly message for 401 (session expired)
       if (err.response?.status === 401) {
         errorMsg = 'Your session has expired. Please log in again.';
       }
       setResult({ answer: `**Error:** ${errorMsg}`, method: mode });
+      scrollToAnswer();
     } finally {
       setLoading(false);
     }
-  }, [query, mode, selectedIds, setHighlighted, addHistoryItem]);
+  }, [query, mode, selectedIds, setHighlighted, addHistoryItem, scrollToAnswer]);
 
-  // New Chat — clear everything
   const handleNewChat = useCallback(() => {
     setQuery('');
     setResult(null);
@@ -152,7 +160,6 @@ export function MainQueryView() {
     clearLastSession();
   }, [setHighlighted, selectEntity]);
 
-  // History item selected — restore query + answer
   const handleHistorySelect = useCallback((queryText: string, item?: HistoryItem) => {
     setQuery(queryText);
     if (item?.answer_text) {
@@ -163,8 +170,9 @@ export function MainQueryView() {
         method: item.retrieval_mode,
         confidence: undefined,
       });
+      scrollToAnswer();
     }
-  }, []);
+  }, [scrollToAnswer]);
 
   function askEntity(name: string) {
     setQuery(name);
@@ -189,7 +197,7 @@ export function MainQueryView() {
           </button>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4 scrollbar-thin">
+        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4 scrollbar-thin">
           <QueryPanel
             value={query}
             onChange={setQuery}
@@ -199,13 +207,15 @@ export function MainQueryView() {
             loading={loading}
           />
 
-          <AnswerCard
-            answer={result?.answer || ''}
-            confidence={result?.confidence}
-            method={result?.method}
-            citations={result?.citations}
-            loading={loading}
-          />
+          <div ref={answerRef}>
+            <AnswerCard
+              answer={result?.answer || ''}
+              confidence={result?.confidence}
+              method={result?.method}
+              citations={result?.citations}
+              loading={loading}
+            />
+          </div>
 
           {result?.hops && result.hops.length > 0 && (
             <PathView
@@ -231,7 +241,7 @@ export function MainQueryView() {
           )}
         </div>
 
-        {!empty && <QueryHistory onSelect={handleHistorySelect} />}
+        <QueryHistory onSelect={handleHistorySelect} />
 
         {result && (
           <SourceToggle

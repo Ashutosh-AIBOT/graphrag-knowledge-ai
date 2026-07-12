@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 # Strict allowlist for relationship types — prevents Cypher injection
 VALID_RELATIONSHIP_TYPES = frozenset({
     'WORKS_AT', 'MANAGES', 'PART_OF', 'DEPENDS_ON', 'CREATED_BY',
-    'LOCATED_IN', 'RELATED_TO', 'COMPETES_WITH', 'PARTNER_OF', 'SUCCEEDED_BY'
+    'LOCATED_IN', 'RELATED_TO', 'COMPETES_WITH', 'PARTNER_OF', 'SUCCEEDED_BY',
+    'BUILT_BY', 'LEADS'
 })
 
 
@@ -266,8 +267,10 @@ class Neo4jClient:
             nodes_query = (
                 "MATCH (e:Entity {user_id: $user_id}) "
                 "WHERE e.source_doc_id IN $doc_ids "
+                "OPTIONAL MATCH (e)-[r]-() "
                 "RETURN e.name AS name, e.type AS type, e.description AS description, "
-                "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page "
+                "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page, "
+                "       count(r) AS connections "
                 "LIMIT 500"
             )
             # Filter edges by checking that BOTH endpoint nodes belong to the filtered docs
@@ -283,8 +286,10 @@ class Neo4jClient:
         else:
             nodes_query = (
                 "MATCH (e:Entity {user_id: $user_id}) "
+                "OPTIONAL MATCH (e)-[r]-() "
                 "RETURN e.name AS name, e.type AS type, e.description AS description, "
-                "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page "
+                "       e.source_doc AS source_doc, e.source_doc_id AS source_doc_id, e.page AS page, "
+                "       count(r) AS connections "
                 "LIMIT 500"
             )
             # No doc filter — return ALL edges between user's nodes

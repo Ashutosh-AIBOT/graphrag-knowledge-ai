@@ -102,14 +102,21 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 class QueryLogSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    answer_preview = serializers.SerializerMethodField()
 
     class Meta:
         model = QueryLog
         fields = (
             'id', 'user', 'query_text', 'retrieval_mode', 
-            'answer_text', 'response_time', 'created_at'
+            'answer_text', 'answer_preview', 'response_time', 'created_at'
         )
         read_only_fields = ('id', 'user', 'created_at')
+
+    def get_answer_preview(self, obj):
+        text = obj.answer_text or ""
+        if len(text) > 200:
+            return text[:200] + "..."
+        return text
 
 
 class EvaluationPairSerializer(serializers.ModelSerializer):

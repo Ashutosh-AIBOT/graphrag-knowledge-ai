@@ -30,38 +30,32 @@ export function SourceToggle({ method, entityCount, chunkCount, context }: Sourc
           >
             {method} used
           </span>
-          <span className="flex items-center gap-1 text-xs text-text-muted">
-            <Network className="h-3.5 w-3.5" /> {entityCount} entities
-          </span>
-          <span className="flex items-center gap-1 text-xs text-text-muted">
-            <Type className="h-3.5 w-3.5" /> {chunkCount} chunks
-          </span>
-        </div>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary"
-        >
-          <Layers className="h-3.5 w-3.5" /> Context Preview
-          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
-        </button>
-      </div>
-      {open && (
-        <div className="mt-2 max-h-[300px] overflow-y-auto rounded-md border border-border bg-bg-base p-3 text-xs text-text-secondary scrollbar-thin">
-          {context ? (
-            <div className="prose prose-invert max-w-none text-xs leading-relaxed text-text-secondary space-y-2">
-              <ReactMarkdown>{context}</ReactMarkdown>
-            </div>
-          ) : (
-            <div>
-              <p className="mb-1 font-medium text-text-primary">Retrieval context</p>
-              <p>
-                GRAPH CONTEXT: {entityCount} entities and their relationships were traversed in Neo4j.
-              </p>
-              <p>
-                TEXT CONTEXT: {chunkCount} semantically similar text chunks were retrieved from the vector store.
-              </p>
-            </div>
+          {entityCount > 0 && (
+            <span className="flex items-center gap-1 text-xs text-text-muted">
+              <Network className="h-3.5 w-3.5" /> {entityCount} entities
+            </span>
           )}
+          {chunkCount > 0 && (
+            <span className="flex items-center gap-1 text-xs text-text-muted">
+              <Type className="h-3.5 w-3.5" /> {chunkCount} chunks
+            </span>
+          )}
+        </div>
+        {context && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="inline-flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary"
+          >
+            <Layers className="h-3.5 w-3.5" /> Context Preview
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
+          </button>
+        )}
+      </div>
+      {open && context && (
+        <div className="mt-2 max-h-[300px] overflow-y-auto rounded-md border border-border bg-bg-base p-3 text-xs text-text-secondary scrollbar-thin">
+          <div className="prose prose-invert max-w-none text-xs leading-relaxed text-text-secondary space-y-2">
+            <ReactMarkdown>{context}</ReactMarkdown>
+          </div>
         </div>
       )}
     </div>
