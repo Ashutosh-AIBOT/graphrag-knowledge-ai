@@ -1,0 +1,17 @@
+.git
+.gitignore
+.dockerignore
+venv/
+frontend/
+backend/chroma_db/
+backend/uploaded_documents/
+backend/logs/
+backend/db/
+backend/venv/
+.env
+.env.*
+*.md
+.vscode/
+.idea/
+.mypy_cache/
+.pytest_cache/
