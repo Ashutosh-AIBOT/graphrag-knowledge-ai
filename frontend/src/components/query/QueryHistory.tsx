@@ -137,6 +137,8 @@ export function QueryHistory({ onSelect }: QueryHistoryProps) {
                           ? 'bg-accent-violet/20 text-accent-violet'
                           : item.retrieval_mode === 'GRAPH'
                           ? 'bg-accent-cyan/20 text-accent-cyan'
+                          : item.retrieval_mode === 'MULTIHOP'
+                          ? 'bg-accent-indigo/25 text-accent-indigo border border-accent-indigo/20'
                           : 'bg-emerald-500/20 text-emerald-400'
                       )}
                     >

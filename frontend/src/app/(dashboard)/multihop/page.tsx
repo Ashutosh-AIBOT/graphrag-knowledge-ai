@@ -17,13 +17,19 @@ interface Hop {
   rel: string;
   to: string;
   doc?: string;
+  chunk_text?: string;
+}
+
+interface AlternativePath {
+  hops: Hop[];
+  explanation: string;
 }
 
 interface MultiHopResult {
   found: boolean;
   explanation: string;
   hops: Hop[];
-  alternativePaths: Hop[][];
+  alternativePaths: AlternativePath[];
   hopCount: number;
   entityA: string;
   entityB: string;
@@ -41,6 +47,7 @@ export default function MultiHopPage() {
   const [entityB, setEntityB] = useState('');
   const [useExplicit, setUseExplicit] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [explainingLoading, setExplainingLoading] = useState(false);
   const [result, setResult] = useState<MultiHopResult | null>(null);
   const [error, setError] = useState('');
   const [activePathTab, setActivePathTab] = useState(0);
@@ -74,15 +81,18 @@ export default function MultiHopPage() {
           rel: h.rel || h.type || '',
           to: h.to || h.target || '',
           doc: h.doc || h.source_doc || '',
+          chunk_text: h.chunk_text || '',
         })),
-        alternativePaths: (res.alternative_paths || []).map((path: any[]) =>
-          path.map((step: any) => ({
-            from: step.source || step.from || '',
-            rel: step.type || step.rel || '',
-            to: step.target || step.to || '',
-            doc: step.source_doc || step.doc || '',
-          }))
-        ),
+        alternativePaths: (res.alternative_paths || []).map((alt: any) => ({
+          hops: (alt.hops || []).map((step: any) => ({
+            from: step.from || step.source || '',
+            rel: step.rel || step.type || '',
+            to: step.to || step.target || '',
+            doc: step.doc || step.source_doc || '',
+            chunk_text: step.chunk_text || '',
+          })),
+          explanation: alt.explanation || '',
+        })),
         hopCount: res.hop_count || 0,
         entityA: res.entity_a || a || '',
         entityB: res.entity_b || b || '',
@@ -98,6 +108,56 @@ export default function MultiHopPage() {
     }
   }, [query, entityA, entityB, useExplicit]);
 
+  const handleExplainPath = useCallback(async (index: number) => {
+    if (!result) return;
+    
+    setExplainingLoading(true);
+    setError('');
+    try {
+      const currentPath = index === 0
+        ? result.hops
+        : result.alternativePaths[index - 1]?.hops || [];
+
+      // Reformat the hops payload specifically to match backend expectation:
+      // [{"from": "...", "rel": "...", "to": "...", "chunk_text": "..."}]
+      const hopsPayload = currentPath.map(h => ({
+        from: h.from,
+        rel: h.rel,
+        to: h.to,
+        chunk_text: h.chunk_text || ''
+      }));
+
+      const { data: res } = await api.post('/query/multihop/explain/', {
+        entity_a: result.entityA,
+        entity_b: result.entityB,
+        hops: hopsPayload,
+      });
+
+      // Update the result object in state with the generated explanation
+      setResult((prev) => {
+        if (!prev) return null;
+        if (index === 0) {
+          return { ...prev, explanation: res.explanation };
+        } else {
+          const updatedAlts = [...prev.alternativePaths];
+          updatedAlts[index - 1] = {
+            ...updatedAlts[index - 1],
+            explanation: res.explanation,
+          };
+          return {
+            ...prev,
+            alternativePaths: updatedAlts,
+          };
+        }
+      });
+    } catch (err: any) {
+      const backendError = err.response?.data?.error;
+      setError(backendError || 'Failed to generate explanation for this path.');
+    } finally {
+      setExplainingLoading(false);
+    }
+  }, [result]);
+
   // Synchronize graph highlighting with current active tab path
   useEffect(() => {
     if (!result || !result.found) {
@@ -105,19 +165,23 @@ export default function MultiHopPage() {
       return;
     }
 
-    const allPaths = [result.hops, ...result.alternativePaths];
-    const currentHops = allPaths[activePathTab] || [];
+    const currentHops = activePathTab === 0
+      ? result.hops
+      : result.alternativePaths[activePathTab - 1]?.hops || [];
     const pathNodeIds: string[] = [];
     const entityNames = new Set<string>();
 
-    for (const hop of currentHops) {
-      if (hop.from) {
-        pathNodeIds.push(hop.from);
-        entityNames.add(hop.from);
+    if (currentHops.length > 0) {
+      const firstHop = currentHops[0];
+      if (firstHop.from) {
+        pathNodeIds.push(firstHop.from);
+        entityNames.add(firstHop.from);
       }
-      if (hop.to) {
-        pathNodeIds.push(hop.to);
-        entityNames.add(hop.to);
+      for (const hop of currentHops) {
+        if (hop.to) {
+          pathNodeIds.push(hop.to);
+          entityNames.add(hop.to);
+        }
       }
     }
 
@@ -136,8 +200,9 @@ export default function MultiHopPage() {
 
   const handleCopyPath = () => {
     if (!result) return;
-    const allPaths = [result.hops, ...result.alternativePaths];
-    const currentPath = allPaths[activePathTab] || [];
+    const currentPath = activePathTab === 0
+      ? result.hops
+      : result.alternativePaths[activePathTab - 1]?.hops || [];
     const lines = currentPath
       .map((h) => `${h.from} --[${h.rel.replace(/_/g, ' ')}]--> ${h.to}`)
       .join('\n');
@@ -147,9 +212,9 @@ export default function MultiHopPage() {
   };
 
   return (
-    <div className="flex h-full flex-col lg:flex-row bg-bg-base">
+    <div className="flex h-full flex-col lg:flex-row bg-bg-base overflow-hidden">
       {/* ── LEFT PANEL ── */}
-      <div className="flex w-full flex-col border-b border-border lg:w-2/5 lg:border-b-0 lg:border-r overflow-hidden bg-bg-surface/30">
+      <div className="flex w-full shrink-0 flex-col border-b border-border lg:w-[400px] xl:w-[460px] lg:min-w-[400px] lg:h-full lg:border-b-0 lg:border-r overflow-hidden bg-bg-surface/30">
         <div className="flex-1 space-y-4 overflow-y-auto p-4 scrollbar-thin">
           
           {/* Header */}
@@ -278,13 +343,15 @@ export default function MultiHopPage() {
               entityB={result.entityB}
               copied={copied}
               onCopy={handleCopyPath}
+              onExplainPath={handleExplainPath}
+              explainingLoading={explainingLoading}
             />
           )}
         </div>
       </div>
 
       {/* ── RIGHT PANEL: Graph ── */}
-      <div className="relative w-full flex-1 min-h-[400px] lg:min-h-0 bg-bg-base/20">
+      <div className="relative w-full flex-1 min-h-[400px] lg:min-h-0 lg:h-full bg-bg-base/20">
         {data.nodes.length > 0 ? (
           <GraphVisualization />
         ) : (

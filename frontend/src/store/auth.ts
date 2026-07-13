@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useHistoryStore } from './history';
+import { useDocumentsStore } from './documents';
 
 interface User {
   id: number;
@@ -31,13 +33,20 @@ export const useAuthStore = create<AuthState>()(
           accessToken: access,
           refreshToken: refresh ?? state.refreshToken,
         })),
-      logout: () =>
+      logout: () => {
+        // Clear query history and selected documents
+        useHistoryStore.getState().clear();
+        useDocumentsStore.getState().clear();
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('graphrag-last-session');
+        }
         set({
           user: null,
           accessToken: null,
           refreshToken: null,
           isAuthenticated: false,
-        }),
+        });
+      },
     }),
     { name: 'graphrag-auth' }
   )

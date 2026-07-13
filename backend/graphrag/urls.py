@@ -24,6 +24,7 @@ from .views import (
     CypherQueryView,
     ShortestPathView,
     MultiHopQueryView,
+    MultiHopExplainPathView,
 )
 
 router = DefaultRouter()
@@ -47,6 +48,7 @@ urlpatterns = [
     path('query/vector-only/', VectorOnlyQueryView.as_view(), name='query_vector_only'),
     path('query/compare/', QueryCompareView.as_view(), name='query_compare'),
     path('query/multihop/', MultiHopQueryView.as_view(), name='query_multihop'),
+    path('query/multihop/explain/', MultiHopExplainPathView.as_view(), name='query_multihop_explain'),
 
     # === Legacy endpoints (kept for backwards compat) ===
     path('query/cypher/', CypherQueryView.as_view(), name='query_cypher'),

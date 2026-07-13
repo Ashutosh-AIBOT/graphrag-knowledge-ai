@@ -27,6 +27,7 @@ interface DocumentsState {
   setSelectedDocumentIds: (ids: string[]) => void;
   selectAllDocuments: () => void;
   deselectAllDocuments: () => void;
+  clear: () => void;
 }
 
 export const useDocumentsStore = create<DocumentsState>()(
@@ -64,6 +65,7 @@ export const useDocumentsStore = create<DocumentsState>()(
           return { selectedDocumentIds: completedIds };
         }),
       deselectAllDocuments: () => set({ selectedDocumentIds: [] }),
+      clear: () => set({ documents: [], activeJobs: 0, selectedDocumentIds: [] }),
     }),
     {
       name: 'graphrag-selected-documents',

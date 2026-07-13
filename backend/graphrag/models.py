@@ -61,6 +61,7 @@ class QueryLog(models.Model):
         GRAPH = 'GRAPH', 'Graph Only'
         VECTOR = 'VECTOR', 'Vector Only'
         HYBRID = 'HYBRID', 'Hybrid'
+        MULTIHOP = 'MULTIHOP', 'Multi-Hop'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(

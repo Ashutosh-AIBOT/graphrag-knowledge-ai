@@ -1036,6 +1036,7 @@ class MultiHopQueryView(APIView):
     throttle_classes = [LLMLoadThrottle]
 
     def post(self, request):
+        start_time = time.time()
         query = request.data.get("query", "").strip()
         entity_a = request.data.get("entity_a", "").strip()
         entity_b = request.data.get("entity_b", "").strip()
@@ -1054,18 +1055,23 @@ class MultiHopQueryView(APIView):
 
             # If explicit entities provided, skip extraction
             if entity_a and entity_b:
-                path_result = reasoner.explain_connection(entity_a, entity_b, request.user.id)
+                path_result = reasoner.find_all_reasoning_paths(None, entity_a, entity_b, request.user.id)
             else:
-                # Detect multi-hop and extract entities from query
-                if not reasoner.is_multihop_query(query):
-                    # Still try — the user may have asked a path question without pattern match
-                    pass
-
                 entity_pair = reasoner.extract_entities_from_query(query)
                 if not entity_pair:
+                    explanation_not_found = "Could not identify two entities to connect from your query. Try specifying entity names directly."
+                    # Log empty search to history
+                    response_time = round(time.time() - start_time, 4)
+                    QueryLog.objects.create(
+                        user=request.user,
+                        query_text=query,
+                        retrieval_mode=QueryLog.RetrievalMode.MULTIHOP,
+                        answer_text=explanation_not_found,
+                        response_time=response_time
+                    )
                     return Response({
                         "found": False,
-                        "explanation": "Could not identify two entities to connect from your query. Try specifying entity names directly.",
+                        "explanation": explanation_not_found,
                         "path": [],
                         "alternative_paths": [],
                         "hop_count": 0,
@@ -1075,7 +1081,7 @@ class MultiHopQueryView(APIView):
 
                 entity_a = entity_pair["entity_a"]
                 entity_b = entity_pair["entity_b"]
-                path_result = reasoner.explain_connection(entity_a, entity_b, request.user.id)
+                path_result = reasoner.find_all_reasoning_paths(query, entity_a, entity_b, request.user.id)
 
             # Build hops format for frontend PathView
             hops = []
@@ -1084,7 +1090,25 @@ class MultiHopQueryView(APIView):
                     "from": step["source"],
                     "rel": step["type"],
                     "to": step["target"],
-                    "doc": step.get("source_doc", "")
+                    "doc": step.get("source_doc", ""),
+                    "chunk_text": step.get("chunk_text", "")
+                })
+
+            # Format alternative paths
+            alt_paths = []
+            for alt_obj in path_result.get("alternative_paths", []):
+                alt_hops = []
+                for step in alt_obj.get("hops", []):
+                    alt_hops.append({
+                        "from": step.get("source", "") or step.get("from", ""),
+                        "rel": step.get("type", "") or step.get("rel", ""),
+                        "to": step.get("target", "") or step.get("to", ""),
+                        "doc": step.get("source_doc", "") or step.get("doc", ""),
+                        "chunk_text": step.get("chunk_text", "")
+                    })
+                alt_paths.append({
+                    "hops": alt_hops,
+                    "explanation": alt_obj.get("explanation", "")
                 })
 
             # Collect all entity names for graph highlighting
@@ -1095,12 +1119,22 @@ class MultiHopQueryView(APIView):
                 if step["target"] not in highlighted_entities:
                     highlighted_entities.append(step["target"])
 
+            # Save query log to database for user history (only accessible by request.user)
+            response_time = round(time.time() - start_time, 4)
+            QueryLog.objects.create(
+                user=request.user,
+                query_text=query or f"Find path from {entity_a} to {entity_b}",
+                retrieval_mode=QueryLog.RetrievalMode.MULTIHOP,
+                answer_text=path_result.get("explanation", "") or "No connection found.",
+                response_time=response_time
+            )
+
             return Response({
                 "found": path_result.get("found", False),
                 "explanation": path_result.get("explanation", ""),
                 "path": path_result.get("path", []),
                 "hops": hops,
-                "alternative_paths": path_result.get("alternative_paths", []),
+                "alternative_paths": alt_paths,
                 "hop_count": path_result.get("hop_count", 0),
                 "entity_a": entity_a,
                 "entity_b": entity_b,
@@ -1112,5 +1146,75 @@ class MultiHopQueryView(APIView):
             logger.error("Error in MultiHopQueryView: %s", str(e), exc_info=True)
             return Response(
                 {"error": "An internal error occurred during multi-hop reasoning."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# ============================================================
+# Endpoint: POST /api/query/multihop/explain/
+# ============================================================
+
+class MultiHopExplainPathView(APIView):
+    """
+    On-demand endpoint to generate an LLM explanation for a selected reasoning path.
+    Accepts entity_a, entity_b, and the path hops.
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [LLMLoadThrottle]
+
+    def post(self, request):
+        start_time = time.time()
+        entity_a = request.data.get("entity_a", "").strip()
+        entity_b = request.data.get("entity_b", "").strip()
+        hops = request.data.get("hops", [])
+
+        if not entity_a or not entity_b or not hops:
+            return Response(
+                {"error": "Provide 'entity_a', 'entity_b', and 'hops'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            reasoner = MultiHopReasoner()
+
+            # Format the connection steps
+            alt_steps = []
+            for step in hops:
+                alt_steps.append(f"({step.get('from', '')}) --[{step.get('rel', '')}]--> ({step.get('to', '')})")
+
+            # Extract chunks
+            chunk_texts = [step.get("chunk_text", "") for step in hops if step.get("chunk_text", "")]
+            chunk_context = "\n\n".join([f"Source Document Chunk:\n{text}" for text in chunk_texts if text])
+
+            path_details = "Connection steps:\n" + "\n".join(alt_steps)
+            if chunk_context:
+                path_details += f"\n\nRetrieved Relevant Document Text:\n{chunk_context}"
+
+            response = reasoner.chain.invoke({
+                "entity_a": entity_a,
+                "entity_b": entity_b,
+                "path_details": path_details
+            })
+            explanation = response.content.strip()
+
+            # Save query log to database for user history (only accessible by request.user)
+            response_time = round(time.time() - start_time, 4)
+            QueryLog.objects.create(
+                user=request.user,
+                query_text=f"Explain Path: {entity_a} -> {entity_b}",
+                retrieval_mode=QueryLog.RetrievalMode.MULTIHOP,
+                answer_text=explanation,
+                response_time=response_time
+            )
+
+            return Response({
+                "explanation": explanation,
+                "success": True
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error("Error in MultiHopExplainPathView: %s", str(e), exc_info=True)
+            return Response(
+                {"error": "Failed to generate explanation for the selected reasoning path."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

@@ -122,6 +122,27 @@ class VectorRetriever:
             logger.error("Error retrieving from ChromaDB: %s", str(e), exc_info=True)
             return []
 
+    def get_chunk_by_page(self, doc_name: str, page: int, user_id: str) -> str:
+        """
+        Retrieves the verbatim text content of a specific page/chunk from ChromaDB.
+        """
+        try:
+            collection = self._get_user_collection(user_id)
+            results = collection.get(
+                where={
+                    "$and": [
+                        {"source_doc": str(doc_name)},
+                        {"page": int(page)}
+                    ]
+                },
+                limit=1
+            )
+            if results and results["documents"]:
+                return results["documents"][0]
+        except Exception as e:
+            logger.error("Error fetching chunk from ChromaDB for %s page %d: %s", doc_name, page, str(e))
+        return ""
+
     def delete_document_vectors(self, doc_name: str, user_id: str):
         """
         Removes all vectors belonging to a deleted document.
