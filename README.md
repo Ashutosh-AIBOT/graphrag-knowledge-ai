@@ -1,3 +1,13 @@
+---
+title: Advanced RAG API
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
 # GraphRAG & Knowledge Graph AI
 
 **Assignment #10** — GraphRAG-powered retrieval system with Neo4j, entity extraction, graph traversal, and hybrid graph+vector search.
